@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>シフト管理</title>
+<style>
+:root {
+  --bg: #F7F8FA;
+  --surface: #FFFFFF;
+  --surface2: #F0F2F5;
+  --border: #E4E7EC;
+  --border2: #CBD2DC;
+  --text: #111827;
+  --text2: #4B5563;
+  --text3: #9CA3AF;
+  --accent: #2563EB;
+  --accent-light: #EFF6FF;
+  --green: #059669;
+  --green-light: #ECFDF5;
+  --amber: #D97706;
+  --amber-light: #FFFBEB;
+  --red: #DC2626;
+  --red-light: #FEF2F2;
+  --purple: #7C3AED;
+  --purple-light: #F5F3FF;
+  --radius: 8px;
+  --radius-lg: 12px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif; background: var(--bg); color: var(--text); font-size: 14px; }
+
+/* ===== LAYOUT ===== */
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
+.main { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.topbar { height: 56px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; flex-shrink: 0; }
+.content { flex: 1; overflow: auto; padding: 20px; }
+
+/* ===== SIDEBAR ===== */
+.sidebar-logo { padding: 16px 16px 12px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+.logo-mark { width: 32px; height: 32px; background: var(--accent); border-radius: 8px; display: flex; align-items: center; justify-content: center; }
+.logo-mark svg { width: 18px; height: 18px; fill: white; }
+.logo-text { font-size: 15px; font-weight: 600; color: var(--text); }
+.sidebar-section { padding: 10px 8px 4px; font-size: 11px; font-weight: 600; color: var(--text3); letter-spacing: .06em; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin: 2px 8px; border-radius: var(--radius); cursor: pointer; color: var(--text2); font-size: 13px; transition: all .15s; }
+.nav-item:hover { background: var(--surface2); color: var(--text); }
+.nav-item.active { background: var(--accent-light); color: var(--accent); font-weight: 500; }
+.nav-item svg { width: 16px; height: 16px; flex-shrink: 0; }
+.sidebar-bottom { margin-top: auto; padding: 12px 8px; border-top: 1px solid var(--border); }
+.role-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: var(--radius); font-size: 12px; font-weight: 500; }
+.role-admin { background: var(--accent-light); color: var(--accent); }
+.role-crew { background: var(--green-light); color: var(--green); }
+
+/* ===== TOPBAR ===== */
+.topbar-title { font-size: 16px; font-weight: 600; }
+.topbar-sub { font-size: 13px; color: var(--text3); }
+.topbar-spacer { flex: 1; }
+.week-nav { display: flex; align-items: center; gap: 8px; }
+.week-btn { width: 28px; height: 28px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--surface); cursor: pointer; display: flex; align-items: center; justify-content: center; color: var(--text2); font-size: 12px; }
+.week-btn:hover { background: var(--surface2); }
+.week-label { font-size: 13px; font-weight: 500; min-width: 160px; text-align: center; }
+.btn { padding: 7px 14px; border-radius: var(--radius); font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all .15s; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: #1D4ED8; }
+.btn-outline { background: var(--surface); color: var(--text2); border: 1px solid var(--border2); }
+.btn-outline:hover { background: var(--surface2); }
+
+/* ===== SCREEN TOGGLE ===== */
+.screen { display: none; }
+.screen.active { display: block; }
+
+/* ===== ADMIN: SHIFT TABLE ===== */
+.shift-outer { overflow-x: auto; }
+.shift-table { border-collapse: collapse; min-width: 900px; width: 100%; font-size: 12px; }
+.shift-table th, .shift-table td { border: 1px solid var(--border); }
+.shift-table th { background: var(--surface2); font-weight: 600; color: var(--text2); padding: 6px 8px; white-space: nowrap; }
+.th-time { min-width: 48px; text-align: center; font-size: 11px; }
+.th-store { min-width: 100px; text-align: left; padding-left: 10px !important; }
+.td-store { padding: 6px 10px; font-weight: 500; white-space: nowrap; vertical-align: top; }
+.td-slot { width: 44px; height: 44px; padding: 2px; vertical-align: top; position: relative; }
+.hour-header-row th { height: 28px; }
+.day-header { text-align: center; font-size: 12px; font-weight: 600; padding: 4px 6px !important; }
+.day-header.sat { color: var(--accent); }
+.day-header.sun { color: var(--red); }
+
+/* Count bar */
+.count-bar-row td { padding: 0; height: 36px; }
+.count-bar-cell { position: relative; vertical-align: bottom; }
+.count-bar-inner { position: absolute; bottom: 0; left: 1px; right: 1px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.count-bar-fill { background: #BFDBFE; border-radius: 2px 2px 0 0; width: 80%; transition: height .3s; }
+.count-bar-num { font-size: 10px; font-weight: 600; color: var(--accent); line-height: 1.2; }
+
+/* Shift blocks */
+.shift-block { border-radius: 3px; padding: 1px 3px; font-size: 10px; font-weight: 500; cursor: pointer; overflow: hidden; line-height: 1.3; white-space: nowrap; text-overflow: ellipsis; }
+.sb-confirmed { background: #DBEAFE; color: #1E40AF; border-left: 3px solid #3B82F6; }
+.sb-provisional { background: #FEF9C3; color: #713F12; border-left: 3px solid #F59E0B; }
+.sb-applied { background: #F3E8FF; color: #5B21B6; border-left: 3px solid #8B5CF6; }
+.sb-error { background: #FEE2E2; color: #991B1B; border-left: 3px solid #EF4444; animation: pulse-red .8s infinite alternate; }
+@keyframes pulse-red { from { opacity:1; } to { opacity:.6; } }
+
+/* ===== STATUS LEGEND ===== */
+.legend { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); }
+.legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+/* ===== STORE MEMO ===== */
+.store-memo { background: var(--amber-light); border: 1px solid #FDE68A; border-radius: var(--radius); padding: 6px 10px; font-size: 11px; color: #78350F; cursor: pointer; display: inline-block; max-width: 100%; }
+.store-memo:empty::before { content: '＋ メモ追加'; color: #D97706; }
+
+/* ===== CARDS ===== */
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 16px; }
+.card-title { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+
+/* ===== CREW PROFILE TABLE ===== */
+.profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.field-group { display: flex; flex-direction: column; gap: 4px; }
+.field-label { font-size: 11px; color: var(--text3); font-weight: 500; }
+.field-val { font-size: 14px; color: var(--text); }
+.field-input { font-size: 13px; padding: 7px 10px; border: 1px solid var(--border2); border-radius: var(--radius); background: var(--surface); width: 100%; color: var(--text); }
+.field-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+
+/* ===== STATUS BADGE ===== */
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+.badge-blue { background: var(--accent-light); color: var(--accent); }
+.badge-green { background: var(--green-light); color: var(--green); }
+.badge-amber { background: var(--amber-light); color: var(--amber); }
+.badge-red { background: var(--red-light); color: var(--red); }
+.badge-purple { background: var(--purple-light); color: var(--purple); }
+
+/* ===== TABS ===== */
+.tab-bar { display: flex; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { padding: 8px 16px; font-size: 13px; font-weight: 500; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-pane { display: none; }
+.tab-pane.active { display: block; }
+
+/* ===== CREW WEEK VIEW ===== */
+.crew-week-grid { display: grid; grid-template-columns: 140px repeat(7, 1fr); gap: 1px; background: var(--border); border-radius: var(--radius); overflow: hidden; font-size: 12px; }
+.cwg-header { background: var(--surface2); padding: 8px 6px; font-weight: 600; text-align: center; color: var(--text2); }
+.cwg-name { background: var(--surface2); padding: 8px 10px; display: flex; align-items: center; gap: 8px; }
+.cwg-cell { background: var(--surface); padding: 6px 4px; text-align: center; min-height: 48px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; }
+.cwg-time { font-size: 11px; color: var(--text2); }
+.cwg-store { font-size: 10px; color: var(--text3); }
+
+/* ===== CREW APP ===== */
+.crew-header { background: linear-gradient(135deg, #1E40AF, #3B82F6); color: white; border-radius: var(--radius-lg); padding: 20px; margin-bottom: 16px; }
+.crew-shift-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; align-items: center; gap: 12px; }
+.crew-shift-date { font-size: 11px; color: var(--text3); min-width: 60px; }
+.crew-shift-time { font-size: 14px; font-weight: 600; }
+.crew-shift-store { font-size: 12px; color: var(--text2); }
+
+/* ===== MODAL ===== */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 100; display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.modal-overlay.open { opacity: 1; pointer-events: auto; }
+.modal { background: var(--surface); border-radius: var(--radius-lg); padding: 20px; width: 480px; max-width: 90vw; max-height: 80vh; overflow-y: auto; }
+.modal-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+.modal-close { cursor: pointer; color: var(--text3); font-size: 20px; line-height: 1; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* ===== NOTIFICATION ===== */
+.notif-banner { position: fixed; top: 16px; right: 16px; background: var(--text); color: white; padding: 12px 16px; border-radius: var(--radius); font-size: 13px; opacity: 0; transform: translateY(-8px); transition: all .3s; z-index: 200; max-width: 280px; }
+.notif-banner.show { opacity: 1; transform: translateY(0); }
+
+/* ===== APPLY FORM ===== */
+.apply-row { display: grid; grid-template-columns: 80px 1fr 1fr 120px; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.apply-row:last-child { border-bottom: none; }
+.apply-day { font-weight: 500; }
+.time-input { padding: 5px 8px; border: 1px solid var(--border2); border-radius: var(--radius); font-size: 12px; width: 100%; }
+.store-select { padding: 5px 8px; border: 1px solid var(--border2); border-radius: var(--radius); font-size: 12px; width: 100%; background: var(--surface); }
+
+/* ===== SCROLL STYLING ===== */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ===== RESPONSIVE ===== */
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+
+.salary-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+.stat-card { background: var(--surface2); border-radius: var(--radius); padding: 12px; }
+.stat-label { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.stat-val { font-size: 22px; font-weight: 700; color: var(--text); }
+.stat-sub { font-size: 11px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24"><path d="M17 12h-5v5h5v-5zM16 1v2H8V1H6v2H5c-1.11 0-1.99.9-1.99 2L3 19c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2h-1V1h-2zm3 18H5V8h14v11z"/></svg>
+      </div>
+      <span class="logo-text">シフト管理</span>
+    </div>
+
+    <div id="admin-nav">
+      <div class="sidebar-section">管理者メニュー</div>
+      <div class="nav-item active" onclick="showScreen('admin-shift')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V8h14v11z"/></svg>
+        シフト表（週次）
+      </div>
+      <div class="nav-item" onclick="showScreen('admin-crew-detail')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+        クルー個人シフト
+      </div>
+      <div class="nav-item" onclick="showScreen('admin-applications')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z"/></svg>
+        申請一覧
+        <span class="badge badge-purple" style="margin-left:auto;font-size:10px;">3</span>
+      </div>
+      <div class="nav-item" onclick="showScreen('admin-crew-list')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        クルー管理
+      </div>
+    </div>
+
+    <div class="sidebar-bottom">
+      <div style="display:flex;align-items:center;gap:8px;padding:4px 4px 10px;">
+        <div class="avatar" style="background:#DBEAFE;color:#1E40AF;">管</div>
+        <div>
+          <div style="font-size:12px;font-weight:500;">おーちゃん</div>
+          <div class="role-badge role-admin" style="padding:2px 6px;font-size:11px;">管理者</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);padding:0 4px;margin-bottom:6px;">表示切替：</div>
+      <div style="display:flex;gap:6px;padding:0 4px;">
+        <button class="btn btn-outline" style="flex:1;font-size:11px;" onclick="switchRole('admin')">管理者</button>
+        <button class="btn btn-outline" style="flex:1;font-size:11px;" onclick="switchRole('crew')">クルー</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div>
+        <div class="topbar-title" id="topbar-title">シフト表（週次・5店舗）</div>
+        <div class="topbar-sub" id="topbar-sub">管理者ビュー</div>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="week-nav" id="week-nav-admin">
+        <button class="week-btn" onclick="changeWeek(-1)">◀</button>
+        <span class="week-label" id="week-label-admin"></span>
+        <button class="week-btn" onclick="changeWeek(1)">▶</button>
+      </div>
+      <button class="btn btn-primary" id="topbar-action" onclick="confirmAllShifts()">シフト一括確定</button>
+    </div>
+
+    <!-- CONTENT -->
+    <div class="content">
+
+      <!-- ====== ADMIN SHIFT TABLE ====== -->
+      <div class="screen active" id="screen-admin-shift">
+        <div class="legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#3B82F6;"></div>確定</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#F59E0B;"></div>仮確定</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#8B5CF6;"></div>申請中</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#EF4444;"></div>ダブり！確定不可</div>
+        </div>
+        <div class="shift-outer">
+          <table class="shift-table" id="main-shift-table"></table>
+        </div>
+      </div>
+
+      <!-- ====== ADMIN CREW DETAIL ====== -->
+      <div class="screen" id="screen-admin-crew-detail">
+        <div class="tab-bar">
+          <div class="tab active" onclick="switchTab(this,'crew-detail-tab','tab-weekly')">週次シフト</div>
+          <div class="tab" onclick="switchTab(this,'crew-detail-tab','tab-monthly')">月次給与推定</div>
+        </div>
+        <div class="tab-pane active" id="tab-weekly">
+          <div class="salary-summary">
+            <div class="stat-card">
+              <div class="stat-label">今週の稼働時間</div>
+              <div class="stat-val">32.5<span style="font-size:14px;font-weight:400;">h</span></div>
+              <div class="stat-sub">全クルー合計</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">月次推定人件費</div>
+              <div class="stat-val">¥<span id="est-salary">1,248,000</span></div>
+              <div class="stat-sub">最低賃金×稼働時間ベース</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">未確定シフト</div>
+              <div class="stat-val" style="color:var(--amber);">7</div>
+              <div class="stat-sub">申請中・仮確定含む</div>
+            </div>
+          </div>
+          <div class="crew-week-grid" id="crew-week-grid"></div>
+        </div>
+        <div class="tab-pane" id="tab-monthly">
+          <div id="monthly-salary-table"></div>
+        </div>
+      </div>
+
+      <!-- ====== ADMIN APPLICATIONS ====== -->
+      <div class="screen" id="screen-admin-applications">
+        <div class="card">
+          <div class="card-title">シフト申請一覧</div>
+          <div id="application-list"></div>
+        </div>
+      </div>
+
+      <!-- ====== ADMIN CREW LIST ====== -->
+      <div class="screen" id="screen-admin-crew-list">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+          <button class="btn btn-primary" onclick="openModal('modal-add-crew')">＋ クルー追加</button>
+        </div>
+        <div id="crew-list-cards"></div>
+      </div>
+
+      <!-- ====== CREW APP ====== -->
+      <div class="screen" id="screen-crew-app">
+        <div class="crew-header">
+          <div style="font-size:12px;opacity:.8;margin-bottom:4px;">こんにちは</div>
+          <div style="font-size:20px;font-weight:700;margin-bottom:2px;">田中 さくら さん</div>
+          <div style="font-size:12px;opacity:.8;">立花駅南店 ／ 時給 ¥1,064</div>
+        </div>
+        <div class="tab-bar">
+          <div class="tab active" onclick="switchTab(this,'crew-tab','crew-tab-myshift')">自分のシフト</div>
+          <div class="tab" onclick="switchTab(this,'crew-tab','crew-tab-apply')">シフト申請</div>
+          <div class="tab" onclick="switchTab(this,'crew-tab','crew-tab-store')">店舗シフト確認</div>
+        </div>
+        <div class="tab-pane active" id="crew-tab-myshift">
+          <div id="crew-my-shifts"></div>
+        </div>
+        <div class="tab-pane" id="crew-tab-apply">
+          <div class="card" style="margin-bottom:12px;">
+            <div class="card-title">シフト希望申請</div>
+            <div style="font-size:12px;color:var(--text2);margin-bottom:12px;">3/24（月）〜 3/30（日）の希望を入力してください</div>
+            <div class="apply-row" style="font-weight:600;font-size:11px;color:var(--text3);border-bottom:2px solid var(--border);">
+              <div>曜日</div><div>開始</div><div>終了</div><div>店舗</div>
+            </div>
+            <div id="apply-form-rows"></div>
+            <div style="margin-top:16px;display:flex;gap:8px;">
+              <button class="btn btn-primary" onclick="submitApply()">申請する</button>
+              <button class="btn btn-outline">クリア</button>
+            </div>
+          </div>
+        </div>
+        <div class="tab-pane" id="crew-tab-store">
+          <div style="font-size:13px;color:var(--text2);margin-bottom:12px;">他のクルーのシフトを確認できます</div>
+          <div class="shift-outer">
+            <table class="shift-table" id="crew-store-shift-table" style="min-width:600px;"></table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ====== MODALS ====== -->
+<div class="modal-overlay" id="modal-shift-edit" onclick="closeModalOutside(event,'modal-shift-edit')">
+  <div class="modal">
+    <div class="modal-title">シフト編集 <span class="modal-close" onclick="closeModal('modal-shift-edit')">×</span></div>
+    <div id="modal-shift-content"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-shift-edit')">キャンセル</button>
+      <button class="btn btn-outline" style="color:var(--amber);border-color:var(--amber);" onclick="setShiftStatus('provisional')">仮確定</button>
+      <button class="btn btn-primary" onclick="setShiftStatus('confirmed')">確定</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-add-crew" onclick="closeModalOutside(event,'modal-add-crew')">
+  <div class="modal">
+    <div class="modal-title">クルー情報登録 <span class="modal-close" onclick="closeModal('modal-add-crew')">×</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field-group"><div class="field-label">名前</div><input class="field-input" placeholder="田中 さくら"></div>
+      <div class="field-group"><div class="field-label">電話番号</div><input class="field-input" placeholder="090-0000-0000" type="tel"></div>
+      <div class="field-group" style="grid-column:1/-1;"><div class="field-label">住所</div><input class="field-input" placeholder="大阪府尼崎市..."></div>
+      <div class="field-group"><div class="field-label">国籍</div><input class="field-input" placeholder="日本"></div>
+      <div class="field-group"><div class="field-label">在留資格</div><select class="field-input"><option>—</option><option>日本国籍</option><option>永住者</option><option>特定技能</option><option>技術・人文知識・国際業務</option><option>留学</option><option>家族滞在</option><option>特定活動</option></select></div>
+      <div class="field-group"><div class="field-label">在留期限</div><input class="field-input" type="date"></div>
+      <div class="field-group"><div class="field-label">担当店舗</div><select class="field-input"><option>立花駅南店</option><option>高田町店</option><option>次屋三丁目店</option><option>内環豊中服部寿町店</option><option>伏尾台店</option></select></div>
+      <div class="field-group"><div class="field-label">役職</div><select class="field-input"><option>クルー</option><option>リーダー</option><option>サブリーダー</option></select></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-add-crew')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveNewCrew()">登録する</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modal-memo" onclick="closeModalOutside(event,'modal-memo')">
+  <div class="modal">
+    <div class="modal-title" id="modal-memo-title">メモ編集 <span class="modal-close" onclick="closeModal('modal-memo')">×</span></div>
+    <textarea id="modal-memo-text" class="field-input" rows="4" style="width:100%;resize:vertical;" placeholder="例：田中さん 午前中病院のため10時以降希望&#10;山本さん 翌週まで遠方研修"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-memo')">キャンセル</button>
+      <button class="btn btn-primary" onclick="saveMemo()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="notif-banner" id="notif"></div>
+
+<script>
+// ===== DATA =====
+const STORES = ['高田町店','次屋三丁目店','立花駅南店','内環豊中服部寿町店','伏尾台店'];
+const DAYS_SHORT = ['月','火','水','木','金','土','日'];
+const DAYS_DATES = ['3/24','3/25','3/26','3/27','3/28','3/29','3/30'];
+const HOURS = Array.from({length:18}, (_,i) => i + 6); // 6〜23
+const MIN_WAGE = 1064; // 大阪最低賃金
+let weekOffset = 0;
+
+const CREW_LIST = [
+  { id:1, name:'田中 さくら', phone:'090-1111-2222', address:'兵庫県尼崎市立花町1-1', nationality:'日本', visa:'日本国籍', visaExp:null, store:'立花駅南店', role:'リーダー', color:'#DBEAFE', tc:'#1E40AF' },
+  { id:2, name:'山本 健太',  phone:'090-2222-3333', address:'兵庫県尼崎市次屋2-2', nationality:'日本', visa:'日本国籍', visaExp:null, store:'次屋三丁目店', role:'クルー', color:'#D1FAE5', tc:'#065F46' },
+  { id:3, name:'鈴木 あおい', phone:'090-3333-4444', address:'兵庫県尼崎市神田3-3', nationality:'中国', visa:'永住者', visaExp:'2028-12-31', store:'立花駅南店', role:'クルー', color:'#FEF3C7', tc:'#78350F' },
+  { id:4, name:'中村 大輔',  phone:'090-4444-5555', address:'大阪府豊中市服部4-4', nationality:'日本', visa:'日本国籍', visaExp:null, store:'内環豊中服部寿町店', role:'サブリーダー', color:'#FCE7F3', tc:'#831843' },
+  { id:5, name:'林 ゆか',   phone:'090-5555-6666', address:'大阪府豊中市伏尾台5-5', nationality:'ベトナム', visa:'特定技能', visaExp:'2026-03-31', store:'伏尾台店', role:'クルー', color:'#EDE9FE', tc:'#4C1D95' },
+  { id:6, name:'佐藤 一郎', phone:'090-6666-7777', address:'兵庫県尼崎市高田町6-6', nationality:'日本', visa:'日本国籍', visaExp:null, store:'高田町店', role:'リーダー', color:'#FEE2E2', tc:'#7F1D1D' },
+];
+
+// シフトデータ: { crewId, storeIdx, startH, endH, status:'applied'|'provisional'|'confirmed', dayIdx }
+let SHIFTS = [
+  {id:1, crewId:1, storeIdx:2, startH:7, endH:15, status:'confirmed', dayIdx:0},
+  {id:2, crewId:1, storeIdx:2, startH:7, endH:15, status:'confirmed', dayIdx:1},
+  {id:3, crewId:1, storeIdx:2, startH:15, endH:23, status:'provisional', dayIdx:2},
+  {id:4, crewId:1, storeIdx:2, startH:7, endH:15, status:'applied', dayIdx:3},
+  {id:5, crewId:2, storeIdx:1, startH:15, endH:23, status:'confirmed', dayIdx:0},
+  {id:6, crewId:2, storeIdx:1, startH:15, endH:23, status:'confirmed', dayIdx:1},
+  {id:7, crewId:2, storeIdx:1, startH:7, endH:15, status:'confirmed', dayIdx:2},
+  {id:8, crewId:3, storeIdx:2, startH:7, endH:12, status:'confirmed', dayIdx:0},
+  {id:9, crewId:3, storeIdx:2, startH:7, endH:12, status:'confirmed', dayIdx:2},
+  {id:10, crewId:3, storeIdx:2, startH:13, endH:19, status:'applied', dayIdx:4},
+  {id:11, crewId:4, storeIdx:3, startH:9, endH:17, status:'confirmed', dayIdx:0},
+  {id:12, crewId:4, storeIdx:3, startH:9, endH:17, status:'confirmed', dayIdx:3},
+  {id:13, crewId:5, storeIdx:4, startH:15, endH:23, status:'provisional', dayIdx:1},
+  {id:14, crewId:5, storeIdx:4, startH:15, endH:23, status:'applied', dayIdx:3},
+  {id:15, crewId:6, storeIdx:0, startH:7, endH:15, status:'confirmed', dayIdx:0},
+  {id:16, crewId:6, storeIdx:0, startH:7, endH:15, status:'confirmed', dayIdx:2},
+  // ダブりエラー例
+  {id:17, crewId:1, storeIdx:0, startH:7, endH:12, status:'applied', dayIdx:0},
+];
+let nextShiftId = 18;
+
+let storeMemos = {};
+let editingShift = null;
+let editingMemoKey = null;
+
+// ===== UTILS =====
+function notify(msg) {
+  const el = document.getElementById('notif');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function closeModalOutside(e, id) { if (e.target.id === id) closeModal(id); }
+function switchTab(el, groupId, tabId) {
+  const parent = el.closest('.card, .screen, .tab-pane')?.parentElement || document.body;
+  document.querySelectorAll(`#${groupId}`).forEach(t => t.classList.remove('active'));
+  el.closest('.tab-bar').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(tabId).classList.add('active');
+}
+function switchTab(el, groupClass, tabId) {
+  el.closest('.tab-bar').querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  // find all panes with ids matching tabId pattern
+  const paneGroup = el.closest('.main').querySelectorAll('.tab-pane');
+  paneGroup.forEach(p => p.classList.remove('active'));
+  document.getElementById(tabId).classList.add('active');
+}
+
+function hasConflict(shift) {
+  return SHIFTS.some(s =>
+    s.id !== shift.id &&
+    s.crewId === shift.crewId &&
+    s.dayIdx === shift.dayIdx &&
+    s.startH < shift.endH &&
+    shift.startH < s.endH
+  );
+}
+
+function getWeekLabel() {
+  return `3/24（月）〜 3/30（日）`;
+}
+
+// ===== SCREENS =====
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  event?.currentTarget?.classList.add('active');
+
+  const titles = {
+    'admin-shift': ['シフト表（週次・5店舗）', '管理者ビュー'],
+    'admin-crew-detail': ['クルー個人シフト', '週次・月次給与推定'],
+    'admin-applications': ['シフト申請一覧', '承認待ち'],
+    'admin-crew-list': ['クルー管理', 'スタッフ情報'],
+    'crew-app': ['マイシフト', 'クルービュー'],
+  };
+  const t = titles[name] || ['—',''];
+  document.getElementById('topbar-title').textContent = t[0];
+  document.getElementById('topbar-sub').textContent = t[1];
+
+  if (name === 'admin-shift') renderShiftTable();
+  if (name === 'admin-crew-detail') { renderCrewWeekGrid(); renderMonthlySalary(); }
+  if (name === 'admin-applications') renderApplications();
+  if (name === 'admin-crew-list') renderCrewList();
+  if (name === 'crew-app') { renderCrewMyShifts(); renderApplyForm(); renderCrewStoreShift(); }
+}
+
+function switchRole(role) {
+  if (role === 'admin') {
+    document.getElementById('admin-nav').style.display = '';
+    showScreen('admin-shift');
+  } else {
+    showScreen('crew-app');
+  }
+}
+
+// ===== SHIFT TABLE =====
+function renderShiftTable() {
+  document.getElementById('week-label-admin').textContent = getWeekLabel();
+  const table = document.getElementById('main-shift-table');
+  let html = '<thead>';
+
+  // Day header row
+  html += '<tr><th class="th-store" rowspan="2">店舗</th>';
+  DAYS_SHORT.forEach((d, i) => {
+    const cls = i === 5 ? 'sat' : i === 6 ? 'sun' : '';
+    html += `<th class="day-header ${cls}" colspan="${HOURS.length}">${d}<br><span style="font-size:10px;font-weight:400;">${DAYS_DATES[i]}</span></th>`;
+  });
+  html += '</tr>';
+
+  // Hour header row
+  html += '<tr>';
+  DAYS_SHORT.forEach(() => {
+    HOURS.forEach(h => {
+      html += `<th class="th-time">${h}</th>`;
+    });
+  });
+  html += '</tr>';
+
+  // Count bar row
+  html += '</thead><tbody>';
+  html += '<tr style="background:var(--surface2);"><td style="padding:4px 8px;font-size:11px;color:var(--text3);font-weight:500;">人数</td>';
+  DAYS_SHORT.forEach((_, dayIdx) => {
+    HOURS.forEach(h => {
+      const count = SHIFTS.filter(s =>
+        s.dayIdx === dayIdx && s.startH <= h && h < s.endH && s.status !== 'applied'
+      ).length;
+      const maxCount = 5;
+      const pct = Math.min(count / maxCount * 100, 100);
+      html += `<td class="count-bar-cell" style="border:1px solid var(--border);padding:0;height:36px;">
+        <div class="count-bar-inner">
+          <div class="count-bar-num">${count > 0 ? count : ''}</div>
+          <div class="count-bar-fill" style="height:${pct}%;"></div>
+        </div></td>`;
+    });
+  });
+  html += '</tr>';
+
+  // Store rows
+  STORES.forEach((store, storeIdx) => {
+    const memoKey = `store_${storeIdx}`;
+    const memo = storeMemos[memoKey] || '';
+
+    // Group crews for this store
+    const storeShifts = SHIFTS.filter(s => s.storeIdx === storeIdx);
+    const crewIds = [...new Set(storeShifts.map(s => s.crewId))];
+
+    html += `<tr>
+      <td class="td-store" rowspan="${crewIds.length + 1}" style="vertical-align:top;min-width:120px;">
+        <div style="font-weight:600;font-size:12px;margin-bottom:6px;">${store}</div>
+        <div class="store-memo" onclick="openMemoModal(${storeIdx})">${memo || ''}</div>
+      </td>`;
+
+    // First crew row inline
+    if (crewIds.length > 0) {
+      const crew = CREW_LIST.find(c => c.id === crewIds[0]);
+      html += renderCrewCells(crewIds[0], storeIdx, crew);
+      html += '</tr>';
+      // Remaining crew rows
+      for (let i = 1; i < crewIds.length; i++) {
+        const c2 = CREW_LIST.find(c => c.id === crewIds[i]);
+        html += `<tr>${renderCrewCells(crewIds[i], storeIdx, c2)}</tr>`;
+      }
+    } else {
+      // Empty row
+      DAYS_SHORT.forEach(() => HOURS.forEach(() => { html += '<td class="td-slot"></td>'; }));
+      html += '</tr>';
+    }
+  });
+
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+
+function renderCrewCells(crewId, storeIdx, crew) {
+  const name = crew ? crew.name.split(' ')[0] : '?';
+  let html = '';
+  DAYS_SHORT.forEach((_, dayIdx) => {
+    // Build time array for this crew+store+day
+    const dayShifts = SHIFTS.filter(s =>
+      s.crewId === crewId && s.storeIdx === storeIdx && s.dayIdx === dayIdx
+    );
+
+    // Merge cells per hour
+    const hourMap = {};
+    dayShifts.forEach(s => {
+      const conflict = hasConflict(s);
+      for (let h = s.startH; h < s.endH && h < 24; h++) {
+        hourMap[h] = { shift: s, conflict, isFirst: h === s.startH, span: s.endH - s.startH };
+      }
+    });
+
+    const rendered = new Set();
+    HOURS.forEach(h => {
+      if (rendered.has(h)) { return; }
+      const entry = hourMap[h];
+      if (entry && entry.isFirst) {
+        const s = entry.shift;
+        const span = Math.min(s.endH, 24) - s.startH;
+        const cls = entry.conflict ? 'sb-error' : {
+          confirmed: 'sb-confirmed', provisional: 'sb-provisional', applied: 'sb-applied'
+        }[s.status];
+        const label = entry.conflict ? '⚠ダブり' : `${s.startH}〜${s.endH}`;
+        html += `<td class="td-slot" colspan="${span}" style="cursor:pointer;" onclick="openShiftEdit(${s.id})">
+          <div class="shift-block ${cls}" style="width:100%;">${name}<br>${label}</div>
+        </td>`;
+        for (let i = h+1; i < h+span; i++) rendered.add(i);
+      } else if (!entry) {
+        html += `<td class="td-slot" onclick="openShiftAdd(${storeIdx},${dayIdx},${h})"></td>`;
+      } else {
+        // middle of spanned cell already rendered by colspan
+      }
+    });
+  });
+  return html;
+}
+
+// ===== SHIFT EDIT MODAL =====
+function openShiftEdit(shiftId) {
+  editingShift = SHIFTS.find(s => s.id === shiftId);
+  if (!editingShift) return;
+  const crew = CREW_LIST.find(c => c.id === editingShift.crewId);
+  const conflict = hasConflict(editingShift);
+  const statusMap = { confirmed:'確定', provisional:'仮確定', applied:'申請中' };
+  document.getElementById('modal-shift-content').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      <div class="field-group"><div class="field-label">クルー</div><div class="field-val">${crew?.name}</div></div>
+      <div class="field-group"><div class="field-label">店舗</div><div class="field-val">${STORES[editingShift.storeIdx]}</div></div>
+      <div class="field-group"><div class="field-label">日付</div><div class="field-val">${DAYS_SHORT[editingShift.dayIdx]} ${DAYS_DATES[editingShift.dayIdx]}</div></div>
+      <div class="field-group"><div class="field-label">現在のステータス</div><div class="field-val"><span class="badge ${editingShift.status==='confirmed'?'badge-blue':editingShift.status==='provisional'?'badge-amber':'badge-purple'}">${statusMap[editingShift.status]}</span></div></div>
+      <div class="field-group"><div class="field-label">開始時刻</div><input class="field-input" type="number" id="edit-start" min="0" max="23" value="${editingShift.startH}"></div>
+      <div class="field-group"><div class="field-label">終了時刻</div><input class="field-input" type="number" id="edit-end" min="1" max="24" value="${editingShift.endH}"></div>
+    </div>
+    ${conflict ? `<div style="background:var(--red-light);border:1px solid #FCA5A5;border-radius:var(--radius);padding:10px 12px;font-size:12px;color:var(--red);margin-bottom:10px;">⚠ このシフトは同じクルーの別シフトと時間が重複しています。確定できません。</div>` : ''}
+  `;
+  openModal('modal-shift-edit');
+}
+
+function openShiftAdd(storeIdx, dayIdx, hour) {
+  // Quick add placeholder
+  notify(`${STORES[storeIdx]} ${DAYS_SHORT[dayIdx]} ${hour}:00〜 へシフトを追加するには、クルーを選択してください`);
+}
+
+function setShiftStatus(status) {
+  if (!editingShift) return;
+  if (hasConflict(editingShift) && status === 'confirmed') {
+    notify('⚠ ダブりシフトは確定できません。時間を修正してください。');
+    return;
+  }
+  const startH = parseInt(document.getElementById('edit-start').value);
+  const endH = parseInt(document.getElementById('edit-end').value);
+  editingShift.startH = startH;
+  editingShift.endH = endH;
+  editingShift.status = status;
+  closeModal('modal-shift-edit');
+  renderShiftTable();
+  notify(status === 'confirmed' ? '✓ シフトを確定しました' : '仮確定にしました');
+}
+
+function confirmAllShifts() {
+  const hasErrors = SHIFTS.some(s => s.status !== 'confirmed' && hasConflict(s));
+  if (hasErrors) {
+    notify('⚠ ダブりシフトがあります。先に解消してください。');
+    return;
+  }
+  let count = 0;
+  SHIFTS.forEach(s => { if (s.status !== 'confirmed') { s.status = 'confirmed'; count++; } });
+  renderShiftTable();
+  notify(`✓ ${count}件のシフトを一括確定しました。クルーに通知を送信しました。`);
+}
+
+// ===== MEMO MODAL =====
+function openMemoModal(storeIdx) {
+  editingMemoKey = `store_${storeIdx}`;
+  document.getElementById('modal-memo-title').innerHTML = `${STORES[storeIdx]} メモ <span class="modal-close" onclick="closeModal('modal-memo')">×</span>`;
+  document.getElementById('modal-memo-text').value = storeMemos[editingMemoKey] || '';
+  openModal('modal-memo');
+}
+function saveMemo() {
+  storeMemos[editingMemoKey] = document.getElementById('modal-memo-text').value;
+  closeModal('modal-memo');
+  renderShiftTable();
+  notify('メモを保存しました');
+}
+
+// ===== CREW WEEK GRID =====
+function renderCrewWeekGrid() {
+  const grid = document.getElementById('crew-week-grid');
+  let html = '<div class="cwg-header" style="font-size:11px;">クルー</div>';
+  DAYS_SHORT.forEach((d, i) => {
+    html += `<div class="cwg-header">${d}<br><span style="font-size:10px;font-weight:400;">${DAYS_DATES[i]}</span></div>`;
+  });
+
+  CREW_LIST.forEach(crew => {
+    const initials = crew.name.replace(' ', '').slice(0, 2);
+    let weekHours = 0;
+    html += `<div class="cwg-name">
+      <div class="avatar" style="background:${crew.color};color:${crew.tc};font-size:11px;">${initials}</div>
+      <div><div style="font-size:12px;font-weight:500;">${crew.name}</div><div style="font-size:10px;color:var(--text3);">${crew.store}</div></div>
+    </div>`;
+    DAYS_SHORT.forEach((_, dayIdx) => {
+      const dayShifts = SHIFTS.filter(s => s.crewId === crew.id && s.dayIdx === dayIdx);
+      if (dayShifts.length === 0) {
+        html += '<div class="cwg-cell" style="color:var(--text3);font-size:11px;">—</div>';
+      } else {
+        let cellHtml = '<div class="cwg-cell">';
+        dayShifts.forEach(s => {
+          const h = s.endH - s.startH;
+          weekHours += h;
+          const cls = s.status === 'confirmed' ? 'badge-blue' : s.status === 'provisional' ? 'badge-amber' : 'badge-purple';
+          cellHtml += `<div class="cwg-time">${s.startH}〜${s.endH}</div>`;
+          cellHtml += `<div class="cwg-store" style="font-size:9px;">${STORES[s.storeIdx].replace('店','')}</div>`;
+        });
+        cellHtml += '</div>';
+        html += cellHtml;
+      }
+    });
+  });
+  grid.innerHTML = html;
+}
+
+// ===== MONTHLY SALARY =====
+function renderMonthlySalary() {
+  const rows = CREW_LIST.map(crew => {
+    const weekH = SHIFTS.filter(s => s.crewId === crew.id && s.status === 'confirmed')
+      .reduce((sum, s) => sum + (s.endH - s.startH), 0);
+    const monthH = Math.round(weekH * 4.3);
+    const salary = monthH * MIN_WAGE;
+    const visaAlert = crew.visaExp && new Date(crew.visaExp) < new Date('2026-06-01');
+    return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar" style="background:${crew.color};color:${crew.tc};font-size:11px;">${crew.name.slice(0,1)}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:500;">${crew.name}</div>
+        <div style="font-size:11px;color:var(--text3);">${crew.store} ／ 時給¥${MIN_WAGE.toLocaleString()}</div>
+        ${visaAlert ? `<div style="font-size:10px;color:var(--red);">⚠ 在留期限まで90日以内</div>` : ''}
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:14px;font-weight:700;">¥${salary.toLocaleString()}</div>
+        <div style="font-size:11px;color:var(--text3);">週${weekH}h × 4.3週 = 月${monthH}h</div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('monthly-salary-table').innerHTML = `<div class="card">${rows}</div>`;
+}
+
+// ===== APPLICATIONS =====
+function renderApplications() {
+  const applied = SHIFTS.filter(s => s.status === 'applied');
+  let html = '';
+  applied.forEach(s => {
+    const crew = CREW_LIST.find(c => c.id === s.crewId);
+    const conflict = hasConflict(s);
+    html += `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
+      <div class="avatar" style="background:${crew.color};color:${crew.tc};font-size:11px;">${crew.name.slice(0,1)}</div>
+      <div style="flex:1;">
+        <div style="font-size:13px;font-weight:500;">${crew.name}</div>
+        <div style="font-size:12px;color:var(--text2);">${DAYS_SHORT[s.dayIdx]} ${DAYS_DATES[s.dayIdx]}　${STORES[s.storeIdx]}　${s.startH}:00〜${s.endH}:00</div>
+        ${conflict ? `<div style="font-size:11px;color:var(--red);">⚠ 同日他シフトとダブり — 確定不可</div>` : ''}
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-outline" style="font-size:12px;color:var(--amber);border-color:var(--amber);" onclick="approveApplication(${s.id},'provisional')">仮確定</button>
+        <button class="btn btn-primary" style="font-size:12px;${conflict?'opacity:.4;cursor:not-allowed;':''}" onclick="${conflict?'notify(\"⚠ ダブりシフトは確定できません\")':'approveApplication('+s.id+',\"confirmed\")'}">確定</button>
+      </div>
+    </div>`;
+  });
+  if (!html) html = '<div style="padding:20px;text-align:center;color:var(--text3);">申請中のシフトはありません</div>';
+  document.getElementById('application-list').innerHTML = html;
+}
+
+function approveApplication(shiftId, status) {
+  const s = SHIFTS.find(x => x.id === shiftId);
+  if (s) s.status = status;
+  renderApplications();
+  notify(status === 'confirmed' ? '✓ 確定しました。クルーに通知を送信しました。' : '仮確定にしました');
+}
+
+// ===== CREW LIST =====
+function renderCrewList() {
+  let html = '';
+  CREW_LIST.forEach(crew => {
+    const visaAlert = crew.visaExp && new Date(crew.visaExp) < new Date('2026-06-01');
+    const roleColors = { 'リーダー': 'badge-blue', 'サブリーダー': 'badge-green', 'クルー': '' };
+    html += `<div class="card" style="display:flex;align-items:flex-start;gap:14px;margin-bottom:10px;">
+      <div class="avatar" style="width:44px;height:44px;background:${crew.color};color:${crew.tc};font-size:14px;">${crew.name.slice(0,1)}</div>
+      <div style="flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+          <div style="font-size:15px;font-weight:600;">${crew.name}</div>
+          <span class="badge ${roleColors[crew.role] || 'badge-amber'}">${crew.role}</span>
+          ${visaAlert ? `<span class="badge badge-red">在留期限注意</span>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;font-size:12px;color:var(--text2);">
+          <div>📞 ${crew.phone}</div>
+          <div>🏪 ${crew.store}</div>
+          <div>🌏 ${crew.nationality} ／ ${crew.visa}</div>
+          ${crew.visaExp ? `<div style="color:${visaAlert?'var(--red)':'var(--text2)'};">📅 在留期限: ${crew.visaExp}</div>` : '<div></div>'}
+        </div>
+      </div>
+    </div>`;
+  });
+  document.getElementById('crew-list-cards').innerHTML = html;
+}
+
+function saveNewCrew() {
+  closeModal('modal-add-crew');
+  notify('✓ クルーを登録しました');
+}
+
+// ===== CREW APP =====
+function renderCrewMyShifts() {
+  const crewId = 1;
+  const myShifts = SHIFTS.filter(s => s.crewId === crewId).sort((a, b) => a.dayIdx - b.dayIdx);
+  let html = '';
+  let totalH = 0;
+  myShifts.forEach(s => {
+    const h = s.endH - s.startH;
+    totalH += h;
+    const statusMap = { confirmed:'確定', provisional:'仮確定', applied:'申請中' };
+    const statusCls = { confirmed:'badge-blue', provisional:'badge-amber', applied:'badge-purple' };
+    html += `<div class="crew-shift-card" style="margin-bottom:8px;">
+      <div class="crew-shift-date">${DAYS_SHORT[s.dayIdx]}<br>${DAYS_DATES[s.dayIdx]}</div>
+      <div style="flex:1;">
+        <div class="crew-shift-time">${s.startH}:00 〜 ${s.endH}:00</div>
+        <div class="crew-shift-store">${STORES[s.storeIdx]}　${h}時間</div>
+      </div>
+      <span class="badge ${statusCls[s.status]}">${statusMap[s.status]}</span>
+    </div>`;
+  });
+  const wage = totalH * MIN_WAGE;
+  html = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+    <div class="stat-card"><div class="stat-label">今週の稼働</div><div class="stat-val">${totalH}h</div></div>
+    <div class="stat-card"><div class="stat-label">今週の推定給与</div><div class="stat-val">¥${wage.toLocaleString()}</div></div>
+  </div>` + html;
+  document.getElementById('crew-my-shifts').innerHTML = html;
+}
+
+function renderApplyForm() {
+  const STORE_OPTS = STORES.map((s, i) => `<option value="${i}">${s}</option>`).join('');
+  let html = '';
+  DAYS_SHORT.forEach((d, i) => {
+    html += `<div class="apply-row">
+      <div class="apply-day">${d} ${DAYS_DATES[i]}</div>
+      <input class="time-input" type="time" id="apply-start-${i}" value="">
+      <input class="time-input" type="time" id="apply-end-${i}" value="">
+      <select class="store-select" id="apply-store-${i}"><option value="">— 希望なし</option>${STORE_OPTS}</select>
+    </div>`;
+  });
+  document.getElementById('apply-form-rows').innerHTML = html;
+}
+
+function submitApply() {
+  let count = 0;
+  DAYS_SHORT.forEach((_, i) => {
+    const startVal = document.getElementById(`apply-start-${i}`)?.value;
+    const endVal = document.getElementById(`apply-end-${i}`)?.value;
+    const storeVal = document.getElementById(`apply-store-${i}`)?.value;
+    if (startVal && endVal && storeVal !== '') {
+      const startH = parseInt(startVal.split(':')[0]);
+      const endH = parseInt(endVal.split(':')[0]);
+      SHIFTS.push({ id: nextShiftId++, crewId: 1, storeIdx: parseInt(storeVal), startH, endH, status: 'applied', dayIdx: i });
+      count++;
+    }
+  });
+  if (count > 0) {
+    notify(`✓ ${count}日分の希望を申請しました。管理者の確認をお待ちください。`);
+  } else {
+    notify('入力がありません');
+  }
+}
+
+function renderCrewStoreShift() {
+  const table = document.getElementById('crew-store-shift-table');
+  let html = '<thead><tr><th style="text-align:left;padding:6px 10px;">クルー</th>';
+  DAYS_SHORT.forEach((d, i) => {
+    html += `<th style="text-align:center;padding:6px;">${d}<br><span style="font-size:10px;">${DAYS_DATES[i]}</span></th>`;
+  });
+  html += '</tr></thead><tbody>';
+  CREW_LIST.forEach(crew => {
+    html += `<tr>
+      <td style="padding:6px 10px;font-size:12px;font-weight:500;white-space:nowrap;">${crew.name}</td>`;
+    DAYS_SHORT.forEach((_, dayIdx) => {
+      const s = SHIFTS.find(x => x.crewId === crew.id && x.dayIdx === dayIdx && x.status === 'confirmed');
+      if (s) {
+        html += `<td style="text-align:center;padding:4px;"><div class="shift-block sb-confirmed" style="font-size:10px;">${s.startH}〜${s.endH}</div></td>`;
+      } else {
+        html += `<td style="text-align:center;color:var(--text3);font-size:11px;">—</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody>';
+  table.innerHTML = html;
+}
+
+function changeWeek(d) { weekOffset += d; renderShiftTable(); notify(getWeekLabel()); }
+
+// ===== INIT =====
+renderShiftTable();
+</script>
+</body>
+</html>
