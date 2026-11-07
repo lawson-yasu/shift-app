@@ -13,7 +13,7 @@
   --accent:#2563EB;--accent-l:#EAF1FE;--green:#047857;--green-l:#E7F6EF;
   --amber:#A15C07;--amber-l:#FDF4E3;--red:#C62828;--red-l:#FDECEC;--purple:#6D28D9;--purple-l:#F2EDFD;
   --bc-bg:#D6E4FD;--bc-tx:#1E3A8A;--bp-bg:#FCEFC7;--bp-tx:#713F12;--ba-bg:#E9E1FB;--ba-tx:#4C1D95;--be-bg:#FAD4D4;--be-tx:#7F1D1D;
-  --cw:26px;--dw:468px;--lab:132px;
+  --cw:20px;--dw:480px;--lab:132px;
   color-scheme:light;box-sizing:border-box;
   padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 }
@@ -118,6 +118,14 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:midd
 .b-provisional{background:var(--bp-bg);color:var(--bp-tx);box-shadow:inset 3px 0 0 #F59E0B}
 .b-applied{background:var(--ba-bg);color:var(--ba-tx);box-shadow:inset 3px 0 0 #8B5CF6}
 .b-err{background:var(--be-bg);color:var(--be-tx);box-shadow:inset 3px 0 0 #EF4444}
+.trk.lane{touch-action:pan-y;cursor:crosshair}
+.bar{touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none}
+.bar::before,.bar::after{content:"";position:absolute;top:7px;bottom:7px;width:2px;border-radius:1px;background:currentColor;opacity:.35}
+.bar::before{left:3px}.bar::after{right:3px}
+.bar .lb{pointer-events:none;padding-left:4px}
+.bar.drag{cursor:grabbing;box-shadow:0 2px 8px rgba(0,0,0,.25);z-index:2}
+.bar.ghost{opacity:.75;pointer-events:none}
+.daychips{display:flex;gap:4px;flex-wrap:wrap}
 .memo{position:absolute;top:4px;height:22px;border-radius:6px;border:1px dashed var(--amber);background:var(--amber-l);color:var(--amber);font-size:11px;padding:0 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .memo.has{border-style:solid}
 /* modal */
@@ -180,6 +188,7 @@ table.t td{padding:8px;border-bottom:1px solid var(--border);vertical-align:midd
       <button class="adm" data-v="att">勤怠記録・信頼度</button>
       <button class="adm" data-v="apps">申請一覧 <span class="cnt" id="appCnt">0</span></button>
       <button class="adm" data-v="crew">クルー管理</button>
+      <button class="adm" data-v="notify">通知設定</button>
       <div class="nav-grp adm">クルー</div>
       <button data-v="me">クルー画面</button>
     </nav>
@@ -211,10 +220,17 @@ const API_URL=''; // ← GASのウェブアプリURLをここに貼ると、開�
 const STORES=['高田町店','次屋三丁目店','立花駅南店','内環豊中服部寿町店','伏尾台店'];
 const PREF=['兵庫','兵庫','兵庫','大阪','大阪'];
 const DAYS=['月','火','水','木','金','土','日'];
-const SLOT={am:{n:'早番',s:7,e:15},pm:{n:'遅番',s:15,e:23}};
-const VISAS=['日本国籍','永住者','定住者','日本人の配偶者等','特定技能','技術・人文知識・国際業務','留学','家族滞在','特定活動'];
+const SLOT={early:{n:'早朝',s:6,e:9},morning:{n:'午前',s:9,e:13},afternoon:{n:'午後',s:13,e:17},day:{n:'日中',s:9,e:17},evening:{n:'夕方',s:17,e:22},eve1:{n:'夕方',s:17,e:20},eve2:{n:'夜',s:20,e:22},night:{n:'深夜',s:22,e:30}};
+const CLS={early:'早朝',morning:'午前',afternoon:'午後',evening:'夕方〜夜',night:'深夜',am:'早番',pm:'遅番'};
+const clsOf=h=>h<9?'early':h<13?'morning':h<17?'afternoon':h<22?'evening':'night';
+const prefOf=h=>h<13?'am':h<22?'pm':'night';
+const hl=h=>h>=24?`翌${h-24}`:String(h);
+const tr=s=>`${hl(s.startH)}:00〜${hl(s.endH)}:00`;
+const TPL=[[6,9],[9,13],[13,17],[9,17],[17,22],[17,20],[20,22],[22,30]];
+const REQK=[['early','早朝 6〜9時'],['day','日中 9〜17時'],['evening','夕方 17〜22時'],['night','深夜 22〜翌6時']];
+const VISAS=['日本国籍','永住者','定住者','日本人の配偶者等','特定技能','技術・人文知識・国際業務','留学','家族滞在','特定活動','その他'];
 const COLORS=['#93C5FD','#86EFAC','#FCD34D','#F9A8D4','#C4B5FD','#FCA5A5','#67E8F9','#FDBA74','#A7F3D0','#D8B4FE'];
-const HS=6,HE=24,CW=26,DW=(HE-HS)*CW,KEY='shiftapp_v3';
+const HS=6,HE=30,CW=20,DW=(HE-HS)*CW,KEY='shiftapp_v4';
 const TODAY=new Date();TODAY.setHours(0,0,0,0);
 const BASE=new Date(TODAY);BASE.setDate(TODAY.getDate()-((TODAY.getDay()+6)%7));
 const LS={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
@@ -259,7 +275,8 @@ function demo(){
   const att=[];const A=(c,w,d,type,min,slot,note)=>att.push({id:uid(),crewId:'c'+c,wk:w,day:d,type,min:min||0,slot,note:note||''});
   A(2,-3,2,'late',20,'am');A(2,-2,2,'late',15,'am');A(2,-1,4,'late',30,'am');A(7,-3,5,'absent',0,'pm','体調不良');A(7,-1,5,'absent',0,'pm','私用');
   A(8,-2,4,'change',0,'pm');A(8,-1,0,'change',0,'pm');A(5,-2,3,'late',10,'pm');A(3,-1,0,'absent',0,'am','家族の用事');
-  return {crew:crewL,shifts:sh,att,memos:{},notices:[],wage:{兵庫:1172,大阪:1231},req:{am:1,pm:1}};
+  att.forEach(a=>a.slot=a.slot==='am'?'early':'afternoon');
+  return {crew:crewL,shifts:sh,att,memos:{},notices:[],wage:{兵庫:1172,大阪:1231},req:{early:1,day:1,evening:1,night:1},pat:{day:'split',eve:'full'},raw:{rem_prev_on:'1',rem_prev_hour:'20',rem_soon_on:'1',rem_soon_hours:'3',ch_mail:'1',ch_line:'1',ch_discord:'1'}};
 }
 function saveLocal(){if(MODE==='demo')LS.set(KEY,JSON.stringify(S))}
 function loadLocal(){try{const r=LS.get(KEY);if(r){S=JSON.parse(r);return}}catch(e){}S=demo();saveLocal()}
@@ -282,7 +299,7 @@ async function api(action,body={}){
 const num=v=>v===''||v==null?0:+v;
 const arr=v=>{try{return (Array.isArray(v)?v:JSON.parse(v||'[]')).map(Number)}catch(e){return []}};
 function settingsFrom(list){const st={};(list||[]).forEach(r=>st[r.key]=r.value);
-  return {wage:{兵庫:+st.wage_hyogo||1172,大阪:+st.wage_osaka||1231},req:{am:st.req_am==null?1:+st.req_am,pm:st.req_pm==null?1:+st.req_pm}}}
+  return {wage:{兵庫:+st.wage_hyogo||1172,大阪:+st.wage_osaka||1231},req:{early:st.req_early==null?1:+st.req_early,day:st.req_day==null?1:+st.req_day,evening:st.req_evening==null?1:+st.req_evening,night:st.req_night==null?1:+st.req_night},pat:{day:st.pat_day||'split',eve:st.pat_eve||'full'},raw:st}}
 const shIn=s=>({id:s.id,crewId:s.crewId,store:num(s.store),day:num(s.day),startH:num(s.startH),endH:num(s.endH),status:s.status,wk:wkOf(s.ws),auto:!!s.auto});
 const shOut=s=>({id:s.id,crewId:s.crewId,store:s.store,ws:wsOf(s.wk),day:s.day,startH:s.startH,endH:s.endH,status:s.status,auto:s.auto?'1':''});
 const crIn=c=>({...c,home:num(c.home),desired:num(c.desired),days:arr(c.days),stores:arr(c.stores)});
@@ -291,7 +308,7 @@ async function reload(){
   if(AUTH.role==='admin'){
     const j=await api('getAll');if(!j)return;const d=j.data,st=settingsFrom(d.settings);
     const memos={};(d.memos||[]).forEach(m=>memos[m.id]=m.text);
-    S={crew:d.crew.map(crIn),shifts:d.shifts.map(shIn),att:d.att.map(a=>({...a,wk:wkOf(a.ws),day:num(a.day),min:num(a.min)})),memos,notices:[],...st};ROLE='admin';
+    S={crew:d.crew.map(crIn),shifts:d.shifts.map(shIn),att:d.att.map(a=>({...a,wk:wkOf(a.ws),day:num(a.day),min:num(a.min)})),memos,notices:[],...st,lineTokenSet:!!d.lineTokenSet};ROLE='admin';
   }else{
     const j=await api('getMe');if(!j)return;const d=j.data;
     S={crew:d.crew.map(c=>c.days!==undefined?crIn(c):c),shifts:d.shifts.map(shIn),att:[],memos:{},notices:d.notices,...settingsFrom(d.settings)};ROLE='crew';meId=AUTH.crewId;view='me';
@@ -305,13 +322,13 @@ async function putShifts(list,removeIds=[]){
     list.forEach(r=>{const prev=S.shifts.find(x=>x.id===r.id);const m={...(prev||{}),...r};
       if(m.status==='confirmed'&&conflict(m)){rej.push(r.id);return}
       const was=prev&&prev.status;if(prev)Object.assign(prev,m);else S.shifts.push(m);
-      if(m.status==='confirmed'&&was!=='confirmed')S.notices.push({id:uid(),crewId:m.crewId,text:`${md(dDate(m.wk,m.day))}（${DAYS[m.day]}） ${STORES[m.store]} ${m.startH}:00〜${m.endH}:00 が確定しました`,read:''})});
+      if(m.status==='confirmed'&&was!=='confirmed')S.notices.push({id:uid(),crewId:m.crewId,text:`${md(dDate(m.wk,m.day))}（${DAYS[m.day]}） ${STORES[m.store]} ${tr(m)} が確定しました`,read:''})});
     saveLocal();render();return rej;
   }
   const j=await api('bulkShifts',{rows:list.map(shOut),removeIds});if(!j)return null;await reload();return j.rejected||[];
 }
 function rowOut(t,r){
-  if(t==='Crew')return {...r,days:JSON.stringify(r.days),stores:JSON.stringify(r.stores)};
+  if(t==='Crew'){const o={...r,days:JSON.stringify(r.days),stores:JSON.stringify(r.stores)};delete o.lineUserId;return o}
   if(t==='Attendance')return {id:r.id,crewId:r.crewId,ws:wsOf(r.wk),day:r.day,type:r.type,min:r.min,slot:r.slot,note:r.note,createdAt:new Date().toISOString()};
   return r;
 }
@@ -333,7 +350,8 @@ async function delRow(t,id){
   const j=await api('remove',{table:t,id});if(!j)return false;await reload();return true;
 }
 function setSetting(k,v){
-  if(k==='wage_hyogo')S.wage.兵庫=+v;if(k==='wage_osaka')S.wage.大阪=+v;if(k==='req_am')S.req.am=+v;if(k==='req_pm')S.req.pm=+v;
+  (S.raw=S.raw||{})[k]=String(v);
+  if(k==='wage_hyogo')S.wage.兵庫=+v;if(k==='wage_osaka')S.wage.大阪=+v;if(k.startsWith('req_'))(S.req=S.req||{})[k.slice(4)]=+v;if(k==='pat_day'||k==='pat_eve'){S.pat=S.pat||{day:'split',eve:'full'};S.pat[k.slice(4)]=v}
   if(MODE==='demo')saveLocal();else api('upsert',{table:'Settings',row:{key:k,value:String(v)}});
 }
 
@@ -374,9 +392,9 @@ async function logout(silent){
 }
 
 /* ===== ロジック ===== */
-function conflict(s){return S.shifts.some(o=>o.id!==s.id&&o.crewId===s.crewId&&o.wk===s.wk&&o.day===s.day&&o.startH<s.endH&&s.startH<o.endH)}
+function conflict(s){return S.shifts.some(o=>o.id!==s.id&&o.crewId===s.crewId&&o.wk===s.wk&&o.day*24+o.startH<s.day*24+s.endH&&s.day*24+s.startH<o.day*24+o.endH)}
 function crewHours(cid,w){return S.shifts.filter(s=>s.crewId===cid&&s.wk===w&&s.status!=='applied').reduce((a,s)=>a+hrs(s),0)}
-function pay(s){const w=S.wage[PREF[s.store]];let p=0;for(let h=s.startH;h<s.endH;h++)p+=w*((h>=22||h<5)?1.25:1);return Math.round(p)}
+function pay(s){const w=S.wage[PREF[s.store]];let p=0;for(let h=s.startH;h<s.endH;h++){const d=h%24;p+=w*((d>=22||d<5)?1.25:1)}return Math.round(p)}
 function pendingAbs(cid){const c=crew(cid),ia=(c&&c.interviewAt)||'';return S.att.filter(a=>a.crewId===cid&&a.type==='absent'&&ymd(dDate(a.wk,a.day))>ia)}
 const needInterview=cid=>pendingAbs(cid).length>0;
 function attStats(cid,ref){
@@ -389,7 +407,7 @@ function attStats(cid,ref){
   if(pa.length)rules.push({k:'interview',t:`当日欠勤（${pa.map(a=>md(dDate(a.wk,a.day))).join('・')}）→ 要面談。面談済みにするまで提案に入れない`});
   const late=recs.filter(a=>a.type==='late');
   if(late.length>=2){const keys=[...new Set(late.map(a=>a.day+'_'+a.slot))];
-    rules.push({k:'lateShift',keys,t:`遅刻${late.length}回（${keys.map(k=>{const[d,sl]=k.split('_');return DAYS[d]+'曜'+(SLOT[sl]?SLOT[sl].n:'')}).join('・')}）→ 同じ曜日・時間帯は1時間ずらして提案`})}
+    rules.push({k:'lateShift',keys,t:`遅刻${late.length}回（${keys.map(k=>{const[d,sl]=k.split('_');return DAYS[d]+'曜'+(CLS[sl]||'')}).join('・')}）→ 同じ曜日・時間帯は1時間ずらして提案`})}
   if(c.change>=2)rules.push({k:'backup',t:`直前変更${c.change}回 → 予備要員を自動でセット`});
   else if(score<70)rules.push({k:'backup',t:`信頼スコア${score} → 予備要員を自動でセット`});
   return {score,grade,c,rules};
@@ -404,7 +422,7 @@ function rateData(w,extra){
 }
 
 /* ===== 画面切り替え ===== */
-const TITLES={shift:['シフト表','6時スタート・5店舗・バー表示'],propose:['自動シフト提案','希望時間と勤怠実績から次週シフトを作成'],rate:['希望達成率','潜在希望シフト達成率と希望シフト未達率'],att:['勤怠記録・信頼度','当日欠勤・遅刻・変更を記録すると次回提案に反映'],apps:['申請一覧','クルーからの申請を仮確定・確定'],crew:['クルー管理','個人情報・希望条件・ログイン情報'],me:['マイシフト','自分のシフト・申請・店舗のシフト']};
+const TITLES={shift:['シフト表','6時スタート・5店舗・バー表示'],propose:['自動シフト提案','希望時間と勤怠実績から次週シフトを作成'],rate:['希望達成率','潜在希望シフト達成率と希望シフト未達率'],att:['勤怠記録・信頼度','当日欠勤・遅刻・変更を記録すると次回提案に反映'],apps:['申請一覧','クルーからの申請を仮確定・確定'],crew:['クルー管理','個人情報・希望条件・ログイン情報'],notify:['通知設定','シフトの予告・確定のお知らせ（メール・LINE・Discord）'],me:['マイシフト','自分のシフト・申請・店舗のシフト']};
 document.querySelectorAll('#nav button').forEach(b=>b.onclick=()=>{view=b.dataset.v;render()});
 function moveWk(d){wk+=d;render()}
 function renderFoot(){
@@ -419,27 +437,28 @@ function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===view));
   $('#ttl').textContent=TITLES[view][0];$('#sub').textContent=TITLES[view][1];
   $('#wkLbl').textContent=view==='propose'?`対象：${wkLabel(wk+1)}`:wkLabel(wk);
-  $('#wknav').style.display=['crew','att'].includes(view)?'none':'flex';
+  $('#wknav').style.display=['crew','att','notify'].includes(view)?'none':'flex';
   $('#appCnt').textContent=S.shifts.filter(s=>s.status==='applied').length;
   $('#topActs').innerHTML=view==='shift'?`<button class="btn" onclick="openShift(null)">＋シフト追加</button><button class="btn pri" onclick="confirmAll()">この週を一括確定</button>`
     :isCrew?`<button class="btn sm" onclick="reload()">更新</button><button class="btn sm" onclick="logout()">ログアウト</button>`:'';
   renderFoot();
-  ({shift:vShift,propose:vPropose,rate:vRate,att:vAtt,apps:vApps,crew:vCrew,me:vMe})[view]();
+  ({shift:vShift,propose:vPropose,rate:vRate,att:vAtt,apps:vApps,crew:vCrew,notify:vNotify,me:vMe})[view]();
 }
 
 /* ===== シフト表 ===== */
 function vShift(){
   const w=wk,stores=storeF==='all'?STORES.map((_,i)=>i):[+storeF],T=DW*7;
   let h=`<div class="row" style="margin-bottom:10px"><select class="inp" style="width:auto" onchange="storeF=this.value;render()"><option value="all">全5店舗</option>${STORES.map((s,i)=>`<option value="${i}" ${storeF==i?'selected':''}>${s}</option>`).join('')}</select>
-  <div class="legend" style="margin:0"><span><i style="background:var(--bc-bg)"></i>確定</span><span><i style="background:var(--bp-bg)"></i>仮確定</span><span><i style="background:var(--ba-bg)"></i>申請</span><span><i style="background:var(--be-bg)"></i>他店とダブり（確定不可）</span><span>✦ 自動提案</span></div></div>`;
+  <div class="legend" style="margin:0"><span><i style="background:var(--bc-bg)"></i>確定</span><span><i style="background:var(--bp-bg)"></i>仮確定</span><span><i style="background:var(--ba-bg)"></i>申請</span><span><i style="background:var(--be-bg)"></i>他店とダブり（確定不可）</span><span>✦ 自動提案</span></div></div>
+  <div class="daychips" style="margin-bottom:8px"><span class="note" style="align-self:center">日へ移動</span>${DAYS.map((d,i)=>`<button class="btn sm" onclick="$('.tlwrap').scrollTo({left:${i}*DW,behavior:'smooth'})">${d} ${md(dDate(w,i))}</button>`).join('')}</div>`;
   h+=`<div class="tlwrap"><div class="tl" style="width:calc(var(--lab) + ${T}px)"><div class="tlr head"><div class="lab">店舗／クルー</div><div class="trk" style="width:${T}px">`;
   for(let d=0;d<7;d++)h+=`<div class="tday ${d==5?'sat':d==6?'sun':''}" style="left:${d*DW}px;width:${DW}px">${DAYS[d]} ${md(dDate(w,d))}</div>`;
   h+=`</div></div><div class="tlr hrs"><div class="lab"></div><div class="trk" style="width:${T}px">`;
-  for(let d=0;d<7;d++)for(let x=HS;x<HE;x++)h+=`<div class="thr" style="left:${d*DW+(x-HS)*CW}px">${x}</div>`;
+  for(let d=0;d<7;d++)for(let x=HS;x<HE;x++)h+=`<div class="thr" style="left:${d*DW+(x-HS)*CW}px">${x%24}</div>`;
   h+=`</div></div><div class="tlr cnt"><div class="lab">配置人数</div><div class="trk" style="width:${T}px">`;
   for(let d=0;d<7;d++)for(let x=HS;x<HE;x++){
     const n=S.shifts.filter(s=>s.wk===w&&s.day===d&&stores.includes(s.store)&&s.status!=='applied'&&s.startH<=x&&x<s.endH).length;
-    h+=`<div class="tcn ${x>=7&&x<23&&n<stores.length?'low':''}" style="left:${d*DW+(x-HS)*CW}px" title="${DAYS[d]} ${x}時 ${n}人"><span>${n}</span><i style="height:${Math.min(n,8)/8*24}px"></i></div>`}
+    h+=`<div class="tcn ${n<stores.length?'low':''}" style="left:${d*DW+(x-HS)*CW}px" title="${DAYS[d]} ${x}時 ${n}人"><span>${n}</span><i style="height:${Math.min(n,8)/8*24}px"></i></div>`}
   h+=`</div></div>`;
   stores.forEach(si=>{
     h+=`<div class="tlr store"><div class="lab"><b>${STORES[si]}</b></div><div class="trk" style="width:${T}px">`;
@@ -447,13 +466,64 @@ function vShift(){
     h+=`</div></div>`;
     const ids=[...new Set(S.crew.filter(c=>c.home===si).map(c=>c.id).concat(S.shifts.filter(s=>s.wk===w&&s.store===si).map(s=>s.crewId)))];
     ids.forEach(cid=>{const c=crew(cid);if(!c)return;
-      h+=`<div class="tlr"><div class="lab" title="${needInterview(c.id)?'要面談':''}"><span class="dot" style="background:${c.color}"></span>${needInterview(c.id)?'⚠ ':''}${esc(c.name)}</div><div class="trk" style="width:${T}px">`;
+      h+=`<div class="tlr"><div class="lab" title="${needInterview(c.id)?'要面談':''}"><span class="dot" style="background:${c.color}"></span>${needInterview(c.id)?'⚠ ':''}${esc(c.name)}</div><div class="trk lane" data-crew="${c.id}" data-store="${si}" style="width:${T}px">`;
       S.shifts.filter(s=>s.wk===w&&s.store===si&&s.crewId===cid).forEach(s=>{const err=conflict(s),st=Math.max(s.startH,HS),en=Math.min(s.endH,HE);if(en<=st)return;
-        h+=`<button class="bar ${err?'b-err':'b-'+s.status}" style="left:${s.day*DW+(st-HS)*CW+1}px;width:${(en-st)*CW-2}px" onclick="openShift('${s.id}')">${err?'⚠ダブり ':''}${s.startH}-${s.endH}${s.auto?' ✦':''}</button>`});
+        h+=`<div class="bar ${err?'b-err':'b-'+s.status}" data-id="${s.id}" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openShift('${s.id}')" style="left:${s.day*DW+(st-HS)*CW+1}px;width:${(en-st)*CW-2}px"><span class="lb">${err?'⚠ダブり ':''}${hl(s.startH)}-${hl(s.endH)}${s.auto?' ✦':''}</span></div>`});
       h+=`</div></div>`});
   });
-  h+=`</div></div><p class="note" style="margin-top:8px">バーをタップで編集・仮確定・確定、当日欠勤や遅刻の記録ができます。配置人数の赤字は表示中の店舗数より少ない時間帯です。</p>`;
+  h+=`</div></div><p class="note" style="margin-top:8px">空いている所を横にドラッグするとシフトを追加（仮確定）、バーの端をドラッグで時間を伸び縮み、真ん中をドラッグで移動できます。バーをタップすると編集・確定・勤怠の記録ができます。配置人数の赤字は表示中の店舗数より少ない時間帯です。</p>`;
   $('#view').innerHTML=h;
+  const tl=$('.tl');if(tl)tl.addEventListener('pointerdown',dragDown);
+}
+/* ===== ドラッグでシフト作成・伸縮・移動（マウス・指どちらも） ===== */
+let DRAG=null;
+const hourAt=(trk,clientX,d)=>HS+(clientX-trk.getBoundingClientRect().left-d*DW)/CW;
+const dayAt=(trk,clientX)=>Math.max(0,Math.min(6,Math.floor((clientX-trk.getBoundingClientRect().left)/DW)));
+function paintBar(el,day,a,b){el.style.left=(day*DW+(a-HS)*CW+1)+'px';el.style.width=((b-a)*CW-2)+'px';const lb=el.querySelector('.lb')||el;lb.textContent=`${hl(a)}-${hl(b)}`}
+function dragDown(e){
+  if(e.button>0||DRAG)return;
+  const bar=e.target.closest('.bar[data-id]'),trk=e.target.closest('.trk.lane');if(!trk)return;
+  if(bar){
+    const s=S.shifts.find(x=>x.id===bar.dataset.id);if(!s)return;
+    const r=bar.getBoundingClientRect(),hz=Math.min(e.pointerType==='touch'?18:10,r.width/3),ox=e.clientX-r.left;
+    DRAG={mode:ox<hz?'l':ox>r.width-hz?'r':'move',s0:{...s},el:bar,trk,x0:e.clientX,moved:false,day:s.day,a:s.startH,b:s.endH};
+    bar.setPointerCapture(e.pointerId);e.preventDefault();
+  }else{
+    const d=dayAt(trk,e.clientX),h0=Math.max(HS,Math.min(HE-1,Math.floor(hourAt(trk,e.clientX,d))));
+    DRAG={mode:'new',trk,x0:e.clientX,moved:false,day:d,h0,a:h0,b:h0+1,crewId:trk.dataset.crew,store:+trk.dataset.store,el:null};
+    if(e.pointerType==='mouse')e.preventDefault();
+  }
+  window.addEventListener('pointermove',dragMove);window.addEventListener('pointerup',dragUp);window.addEventListener('pointercancel',dragCancel);
+}
+function dragMove(e){
+  const D=DRAG;if(!D)return;const dx=e.clientX-D.x0;
+  if(!D.moved){if(Math.abs(dx)<6)return;D.moved=true;
+    if(D.mode==='new'){D.el=document.createElement('div');D.el.className='bar b-provisional ghost';D.el.innerHTML='<span class="lb"></span>';D.trk.appendChild(D.el)}
+    else D.el.classList.add('drag')}
+  const step=Math.round(dx/CW);
+  if(D.mode==='new'){const h=Math.max(HS,Math.min(HE,Math.round(hourAt(D.trk,e.clientX,D.day))));D.a=Math.min(D.h0,h);D.b=Math.max(D.h0+1,h);if(D.b-D.a<1)D.b=D.a+1}
+  else if(D.mode==='l'){D.a=Math.max(HS,Math.min(D.s0.endH-1,D.s0.startH+step));D.b=D.s0.endH}
+  else if(D.mode==='r'){D.b=Math.min(HE,Math.max(D.s0.startH+1,D.s0.endH+step));D.a=D.s0.startH}
+  else{const len=D.s0.endH-D.s0.startH,span=HE-HS;let pos=D.s0.day*span+(D.s0.startH-HS)+step;pos=Math.max(0,Math.min(7*span-len,pos));let nd=Math.floor(pos/span),off=pos-nd*span;if(off+len>span)off=span-len;D.day=nd;D.a=HS+off;D.b=D.a+len}
+  paintBar(D.el,D.day,D.a,D.b);
+}
+function dragEnd(){window.removeEventListener('pointermove',dragMove);window.removeEventListener('pointerup',dragUp);window.removeEventListener('pointercancel',dragCancel)}
+function dragCancel(){const D=DRAG;DRAG=null;dragEnd();if(D&&D.mode==='new'&&D.el)D.el.remove();else if(D&&D.moved)render()}
+async function dragUp(){
+  const D=DRAG;DRAG=null;dragEnd();if(!D)return;
+  if(!D.moved){
+    if(D.mode!=='new')return openShift(D.s0.id);
+    openShift(null);$('#fC').value=D.crewId;$('#fS').value=D.store;$('#fD').value=D.day;$('#fA').value=D.h0;$('#fB').value=Math.min(HE,D.h0+4);return;
+  }
+  if(D.mode==='new'){
+    const t={id:uid(),crewId:D.crewId,store:D.store,day:D.day,startH:D.a,endH:D.b,status:'provisional',wk,auto:false};
+    const rej=await putShifts([t]);if(rej)toast(`${crew(D.crewId)?.name||''}さん ${DAYS[D.day]} ${hl(D.a)}〜${hl(D.b)}時を仮確定で追加しました${conflict(t)?'（⚠ 他店とダブっています）':''}`);return;
+  }
+  if(D.day===D.s0.day&&D.a===D.s0.startH&&D.b===D.s0.endH)return render();
+  const wasConf=D.s0.status==='confirmed';
+  const t={...D.s0,day:D.day,startH:D.a,endH:D.b,status:wasConf?'provisional':D.s0.status};
+  const rej=await putShifts([t]);
+  if(rej)toast(wasConf?'確定済みのシフトを変更したので仮確定に戻しました。確定し直すとクルーに通知されます':`${DAYS[D.day]} ${hl(D.a)}〜${hl(D.b)}時に変更しました`);
 }
 function openMemo(si,d){
   const k=memoKey(wk,si,d);
@@ -461,7 +531,7 @@ function openMemo(si,d){
 }
 async function saveMemo(k){const t=$('#memoT').value.trim();closeM();if(await putRow('Memos',{id:k,text:t}))toast('メモを保存しました')}
 function openShift(id){
-  editId=id;const s=id?S.shifts.find(x=>x.id===id):{crewId:S.crew[0]?.id,store:0,day:0,startH:7,endH:15,status:'applied',wk};
+  editId=id;const s=id?S.shifts.find(x=>x.id===id):{crewId:S.crew[0]?.id,store:0,day:0,startH:9,endH:17,status:'applied',wk};
   const err=id&&conflict(s),stName={confirmed:'確定',provisional:'仮確定',applied:'申請中'};
   const opt=(a,v)=>a.map((t,i)=>`<option value="${i}" ${i==v?'selected':''}>${t}</option>`).join('');
   let h=`<div class="grid2">
@@ -469,8 +539,9 @@ function openShift(id){
    <div class="field"><label>店舗</label><select id="fS" class="inp">${opt(STORES,s.store)}</select></div>
    <div class="field"><label>曜日</label><select id="fD" class="inp">${opt(DAYS.map((d,i)=>d+' '+md(dDate(s.wk,i))),s.day)}</select></div>
    <div class="field"><label>現在の状態</label><div>${id?`<span class="chip ${s.status==='confirmed'?'c-blue':s.status==='provisional'?'c-amber':'c-purple'}">${stName[s.status]}</span>`:'<span class="chip c-gray">新規</span>'}</div></div>
-   <div class="field"><label>開始</label><select id="fA" class="inp">${Array.from({length:24},(_,x)=>`<option ${x==s.startH?'selected':''}>${x}</option>`).join('')}</select></div>
-   <div class="field"><label>終了</label><select id="fB" class="inp">${Array.from({length:24},(_,x)=>x+1).map(x=>`<option ${x==s.endH?'selected':''}>${x}</option>`).join('')}</select></div></div>`;
+   <div class="field"><label>開始</label><select id="fA" class="inp">${Array.from({length:24},(_,i)=>i+6).map(x=>`<option value="${x}" ${x==s.startH?'selected':''}>${hl(x)}</option>`).join('')}</select></div>
+   <div class="field"><label>終了</label><select id="fB" class="inp">${Array.from({length:24},(_,i)=>i+7).map(x=>`<option value="${x}" ${x==s.endH?'selected':''}>${hl(x)}</option>`).join('')}</select></div></div>`;
+  h+=`<div class="row" style="margin-top:10px;gap:6px"><span class="note">よく使う時間</span>${TPL.map(([a,b])=>`<button class="btn sm" onclick="$('#fA').value=${a};$('#fB').value=${b}">${hl(a)}-${hl(b)}</button>`).join('')}</div>`;
   if(err)h+=`<div class="alert r">⚠ 同じ日に他のシフトと時間が重なっています。時間か店舗を直すまで確定できません。</div>`;
   if(needInterview(s.crewId))h+=`<div class="alert a">⚠ ${esc(crew(s.crewId).name)}さんは当日欠勤があり要面談です。面談後に入れてください。</div>`;
   if(id)h+=`<div class="card" style="margin:14px 0 0;padding:12px"><b style="font-size:13px">勤怠を記録（次回の自動提案に反映）</b>
@@ -491,7 +562,7 @@ async function saveShift(status){
 async function delShift(){closeM();if(await putShifts([],[editId]))toast('削除しました')}
 async function quickAtt(type){
   const s=S.shifts.find(x=>x.id===editId);const nm=crew(s.crewId).name;
-  const r={id:uid(),crewId:s.crewId,wk:s.wk,day:s.day,type,min:type==='late'?+$('#lateMin').value:0,slot:s.startH<12?'am':'pm',note:'シフト表から記録'};
+  const r={id:uid(),crewId:s.crewId,wk:s.wk,day:s.day,type,min:type==='late'?+$('#lateMin').value:0,slot:clsOf(s.startH),note:'シフト表から記録'};
   if(await putRow('Attendance',r,true))toast(`${nm}さんの${{absent:'当日欠勤',late:'遅刻',early:'早退',change:'直前変更'}[type]}を記録しました`);
   if(MODE==='live')reload();
 }
@@ -527,7 +598,7 @@ function vAtt(){
    <div class="field"><label>クルー</label><select id="aC" class="inp">${S.crew.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
    <div class="field"><label>日付</label><input id="aD" type="date" class="inp" value="${ymd(TODAY)}"></div>
    <div class="field"><label>種類</label><select id="aT" class="inp">${Object.entries(TN).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-   <div class="field"><label>時間帯</label><select id="aS" class="inp"><option value="am">早番</option><option value="pm">遅番</option></select></div>
+   <div class="field"><label>時間帯</label><select id="aS" class="inp">${['early','morning','afternoon','evening','night'].map(k=>`<option value="${k}">${CLS[k]}</option>`).join('')}</select></div>
    <div class="field"><label>遅刻・早退の分数</label><input id="aM" type="number" class="inp" value="0" min="0"></div>
    <div class="field"><label>メモ</label><input id="aN" class="inp" placeholder="理由など"></div></div>
    <div class="acts"><button class="btn pri" onclick="addAtt()">記録する</button></div></div>
@@ -537,7 +608,7 @@ function vAtt(){
   h+=`</table></div><p class="note" style="margin-top:10px">直近8週の記録で計算（4週より前は重み半分）。減点：当日欠勤15、遅刻5＋15分ごとに2、早退5、直前変更4。当日欠勤が1回でもあると要面談になり、面談済みにするまで提案に入りません。遅刻2回で、遅刻した曜日・時間帯は1時間ずらして提案します。直前変更2回かスコア70未満で予備要員をつけます。</p></div>
    <div class="card"><h2>記録一覧</h2><div class="tw"><table class="t"><tr><th>日付</th><th>クルー</th><th>種類</th><th>時間帯</th><th>メモ</th><th></th></tr>`;
   [...S.att].sort((a,b)=>b.wk-a.wk||b.day-a.day).slice(0,50).forEach(a=>{
-    h+=`<tr><td>${md(dDate(a.wk,a.day))}（${DAYS[a.day]}）</td><td>${esc(crew(a.crewId)?.name)}</td><td><span class="chip ${a.type==='absent'?'c-red':a.type==='change'?'c-gray':'c-amber'}">${TN[a.type]}${a.min?` ${a.min}分`:''}</span></td><td>${SLOT[a.slot]?.n||''}</td><td class="note">${esc(a.note)}</td><td><button class="btn sm" onclick="delRow('Attendance','${a.id}')">削除</button></td></tr>`});
+    h+=`<tr><td>${md(dDate(a.wk,a.day))}（${DAYS[a.day]}）</td><td>${esc(crew(a.crewId)?.name)}</td><td><span class="chip ${a.type==='absent'?'c-red':a.type==='change'?'c-gray':'c-amber'}">${TN[a.type]}${a.min?` ${a.min}分`:''}</span></td><td>${CLS[a.slot]||''}</td><td class="note">${esc(a.note)}</td><td><button class="btn sm" onclick="delRow('Attendance','${a.id}')">削除</button></td></tr>`});
   $('#view').innerHTML=h+`</table></div></div>`;
 }
 async function addAtt(){
@@ -550,8 +621,9 @@ async function addAtt(){
 function vPropose(){
   const tw=wk+1,ref=tw-1;
   let h=`<div class="card"><h2>提案の条件</h2><div class="grid2">
-   <div class="field"><label>早番（7〜15時）の必要人数／店</label><input id="rAm" type="number" min="0" max="5" class="inp" value="${S.req.am}"></div>
-   <div class="field"><label>遅番（15〜23時）の必要人数／店</label><input id="rPm" type="number" min="0" max="5" class="inp" value="${S.req.pm}"></div></div>
+   ${REQK.map(([k,l])=>`<div class="field"><label>${l} の必要人数／店</label><input id="rq_${k}" type="number" min="0" max="5" class="inp" value="${(S.req||{})[k]??1}"></div>`).join('')}
+   <div class="field"><label>日中の組み方</label><select id="patDay" class="inp"><option value="split" ${(S.pat||{}).day!=='full'?'selected':''}>9〜13時＋13〜17時</option><option value="full" ${(S.pat||{}).day==='full'?'selected':''}>9〜17時</option></select></div>
+   <div class="field"><label>夕方の組み方</label><select id="patEve" class="inp"><option value="full" ${(S.pat||{}).eve!=='split'?'selected':''}>17〜22時</option><option value="split" ${(S.pat||{}).eve==='split'?'selected':''}>17〜20時＋20〜22時</option></select></div></div>
    <div class="field" style="margin-top:10px"><label>対象店舗</label><div class="checks">${STORES.map((s,i)=>`<label><input type="checkbox" class="pS" value="${i}" ${propStores.includes(i)?'checked':''}>${s}</label>`).join('')}</div></div>
    <div class="acts"><button class="btn pri" onclick="makeProposal()">${wkLabel(tw)} の提案を作成</button></div></div>`;
   const rl=S.crew.map(c=>({c,st:attStats(c.id,ref)})).filter(x=>x.st.rules.length);
@@ -560,47 +632,53 @@ function vPropose(){
   $('#view').innerHTML=h;
 }
 function makeProposal(){
-  const am=+$('#rAm').value||0,pm=+$('#rPm').value||0;
-  if(am!==S.req.am)setSetting('req_am',am);if(pm!==S.req.pm)setSetting('req_pm',pm);
+  S.pat=S.pat||{day:'split',eve:'full'};S.req=S.req||{};
+  REQK.forEach(([k])=>{const v=+$('#rq_'+k).value||0;if(v!==S.req[k])setSetting('req_'+k,v)});
+  const pd=$('#patDay').value,pe=$('#patEve').value;if(pd!==S.pat.day)setSetting('pat_day',pd);if(pe!==S.pat.eve)setSetting('pat_eve',pe);
+  const SK=['early',...(S.pat.day==='full'?['day']:['morning','afternoon']),...(S.pat.eve==='split'?['eve1','eve2']:['evening']),'night'];
+  const grp={early:'early',morning:'day',afternoon:'day',day:'day',evening:'evening',eve1:'evening',eve2:'evening',night:'night'};
+  const len=k=>SLOT[k].e-SLOT[k].s;
   propStores=[...document.querySelectorAll('.pS:checked')].map(x=>+x.value);
   const tw=wk+1,ref=tw-1;
   const keep=S.shifts.filter(s=>s.wk===tw&&!(s.auto&&s.status!=='confirmed'));
   const assigned={},busyD=[...Array(7)].map(()=>new Set()),st={};
   S.crew.forEach(c=>{assigned[c.id]=keep.filter(s=>s.crewId===c.id&&s.status!=='applied').reduce((a,s)=>a+hrs(s),0);st[c.id]=attStats(c.id,ref)});
   keep.forEach(s=>busyD[s.day].add(s.crewId));
+  const occ={};S.crew.forEach(c=>occ[c.id]=keep.filter(s=>s.crewId===c.id&&s.status!=='applied').map(s=>[s.day*24+s.startH,s.day*24+s.endH]));
+  const gapOK=(id,sl)=>{const a=sl.d*24+SLOT[sl.k].s,b=sl.d*24+SLOT[sl.k].e;return occ[id].every(([x,y])=>b+8<=x||y+8<=a)};
   const slots=[];
-  for(let d=0;d<7;d++)propStores.forEach(si=>['am','pm'].forEach(k=>{
+  for(let d=0;d<7;d++)propStores.forEach(si=>SK.forEach(k=>{
     const have=keep.filter(s=>s.day===d&&s.store===si&&s.status!=='applied'&&s.startH<SLOT[k].e&&SLOT[k].s<s.endH).length;
-    for(let i=0;i<S.req[k]-have;i++)slots.push({d,si,k})}));
-  const elig=(c,sl)=>!needInterview(c.id)&&c.days.includes(sl.d)&&c.stores.includes(sl.si)&&!busyD[sl.d].has(c.id)&&assigned[c.id]+8<=Math.min(capOf(c),desOf(c)+4)&&assigned[c.id]<desOf(c);
+    for(let i=0;i<(S.req[grp[k]]??1)-have;i++)slots.push({d,si,k})}));
+  const elig=(c,sl)=>!needInterview(c.id)&&c.days.includes(sl.d)&&c.stores.includes(sl.si)&&!busyD[sl.d].has(c.id)&&assigned[c.id]+len(sl.k)<=Math.min(capOf(c),desOf(c)+4)&&assigned[c.id]<desOf(c)&&gapOK(c.id,sl);
   const score=(c,sl)=>{const r=[],s=st[c.id],des=desOf(c),rem=des-assigned[c.id];
     let sc=s.score+(rem/des)*20;r.push(`信頼${s.grade}（${s.score}）`);r.push(`希望まで残り${rem}h`);
     if(c.home===sl.si){sc+=5;r.push('所属店')}
-    if(c.pref!=='any'){if(c.pref===sl.k){sc+=8;r.push('希望の時間帯')}else{sc-=8;r.push('時間帯は希望外')}}
+    if(c.pref!=='any'){if(c.pref===prefOf(SLOT[sl.k].s)){sc+=8;r.push('希望の時間帯')}else{sc-=8;r.push('時間帯は希望外')}}
     return {sc:Math.round(sc),r}};
   slots.forEach(sl=>sl.n=S.crew.filter(c=>elig(c,sl)).length);slots.sort((a,b)=>a.n-b.n);
   const res=[],short=[];
   slots.forEach(sl=>{
     const cands=S.crew.filter(c=>elig(c,sl)).map(c=>({c,...score(c,sl)})).sort((a,b)=>b.sc-a.sc);
     if(!cands.length){short.push(sl);return}
-    const top=cands[0];assigned[top.c.id]+=8;busyD[sl.d].add(top.c.id);
+    const top=cands[0];assigned[top.c.id]+=len(sl.k);busyD[sl.d].add(top.c.id);occ[top.c.id].push([sl.d*24+SLOT[sl.k].s,sl.d*24+SLOT[sl.k].e]);
     const lr=st[top.c.id].rules.find(r=>r.k==='lateShift');
-    res.push({...sl,crewId:top.c.id,sc:top.sc,r:top.r,s:SLOT[sl.k].s,e:SLOT[sl.k].e,shifted:!!(lr&&lr.keys.includes(sl.d+'_'+sl.k)),backup:null});
+    res.push({...sl,crewId:top.c.id,sc:top.sc,r:top.r,s:SLOT[sl.k].s,e:SLOT[sl.k].e,shifted:!!(lr&&lr.keys.includes(sl.d+'_'+clsOf(SLOT[sl.k].s))),backup:null});
   });
   /* 遅刻対策の1時間ずらし：抜けた1時間を他のメンバーで埋められるか確認 */
   const nm=id=>crew(id).name;
   const covered=(x,h)=>keep.some(s=>s.store===x.si&&s.day===x.d&&s.status!=='applied'&&s.crewId!==x.crewId&&s.startH<=h&&h<s.endH)||res.some(y=>y!==x&&y.si===x.si&&y.d===x.d&&y.s<=h&&h<y.e);
   res.filter(x=>x.shifted).forEach(x=>{
-    const opt=off=>{const s=x.s+off,e=x.e+off;if(s<0||e>24)return null;const gap=off>0?x.s:x.e-1;
+    const opt=off=>{const s=x.s+off,e=x.e+off;if(s<6||e>30)return null;const gap=off>0?x.s:x.e-1;
       if(covered(x,gap))return {off,s,e,gap,how:'covered'};
-      const adj=res.find(y=>y!==x&&!y.shifted&&y.si===x.si&&y.d===x.d&&(off>0?y.e===x.s:y.s===x.e)&&assigned[y.crewId]+1<=capOf(crew(y.crewId))&&(off>0?y.e+1<=24:y.s-1>=0));
+      const adj=res.find(y=>y!==x&&!y.shifted&&y.si===x.si&&y.d===x.d&&(off>0?y.e===x.s:y.s===x.e)&&assigned[y.crewId]+1<=capOf(crew(y.crewId))&&(off>0?y.e+1<=30:y.s-1>=6));
       if(adj)return {off,s,e,gap,how:'extend',adj};
       return {off,s,e,gap,how:'gap'}};
     const pick=opt(1)||opt(-1);
     x.s=pick.s;x.e=pick.e;x.r.push(`遅刻対策で1時間ずらし`);
     if(pick.how==='extend'){const y=pick.adj;if(pick.off>0)y.e+=1;else y.s-=1;assigned[y.crewId]+=1;
-      y.r.push(`${nm(x.crewId)}さんのずらしに合わせて${pick.gap}時台を延長`);x.r.push(`${pick.gap}時台は${nm(y.crewId)}さんが延長`)}
-    else if(pick.how==='covered')x.r.push(`${pick.gap}時台は他のメンバーで足りている`);
+      y.r.push(`${nm(x.crewId)}さんのずらしに合わせて${hl(pick.gap)}時台を延長`);x.r.push(`${hl(pick.gap)}時台は${nm(y.crewId)}さんが延長`)}
+    else if(pick.how==='covered')x.r.push(`${hl(pick.gap)}時台は他のメンバーで足りている`);
     else x.gap=pick.gap;
   });
   /* 予備要員 */
@@ -624,8 +702,8 @@ function renderProposal(P){
   for(let d=0;d<7;d++){const items=P.res.filter(x=>x.d===d),sh=P.short.filter(x=>x.d===d);if(!items.length&&!sh.length)continue;
     h+=`<div style="font-weight:700;margin:12px 0 4px;color:${d==5?'var(--accent)':d==6?'var(--red)':'var(--text)'}">${DAYS[d]} ${md(dDate(P.tw,d))}</div>`;
     items.forEach(x=>{const c=crew(x.crewId),b=x.backup&&crew(x.backup);
-      h+=`<div class="prow"><div style="font-size:12px">${STORES[x.si]}<br><b>${SLOT[x.k].n} ${x.s}〜${x.e}</b></div><div><span class="dot" style="background:${c.color}"></span><b>${esc(c.name)}</b> <span class="note">スコア${x.sc}</span>
-       <div class="reasons">${x.r.map(t=>`<span class="chip ${/希望外|ずらし|延長/.test(t)?'c-amber':'c-gray'}">${t}</span>`).join('')}${x.gap!=null?`<span class="chip c-red">${x.gap}〜${x.gap+1}時 人員要確認</span>`:''}${b?`<span class="chip c-purple">予備：${esc(b.name)}</span>`:''}</div></div></div>`});
+      h+=`<div class="prow"><div style="font-size:12px">${STORES[x.si]}<br><b>${SLOT[x.k].n} ${hl(x.s)}〜${hl(x.e)}</b></div><div><span class="dot" style="background:${c.color}"></span><b>${esc(c.name)}</b> <span class="note">スコア${x.sc}</span>
+       <div class="reasons">${x.r.map(t=>`<span class="chip ${/希望外|ずらし|延長/.test(t)?'c-amber':'c-gray'}">${t}</span>`).join('')}${x.gap!=null?`<span class="chip c-red">${hl(x.gap)}〜${hl(x.gap+1)}時 人員要確認</span>`:''}${b?`<span class="chip c-purple">予備：${esc(b.name)}</span>`:''}</div></div></div>`});
     sh.forEach(x=>h+=`<div class="prow"><div style="font-size:12px">${STORES[x.si]}<br><b>${SLOT[x.k].n}</b></div><div><span class="chip c-red">人員不足</span> <span class="note">条件に合うクルーがいません。採用・他店応援の検討枠です。</span></div></div>`);
   }
   return h+`</div>`;
@@ -643,7 +721,7 @@ function vApps(){
   let h=`<div class="card"><h2>申請中のシフト（全週）</h2>${list.length?'':'<p class="note">申請中のシフトはありません。</p>'}`;
   list.forEach(s=>{const c=crew(s.crewId);if(!c)return;const err=conflict(s);
     h+=`<div class="prow"><div><span class="dot" style="background:${c.color}"></span><b>${esc(c.name)}</b><div class="note">${wkLabel(s.wk)}</div></div><div>
-     <div>${DAYS[s.day]} ${md(dDate(s.wk,s.day))}　${STORES[s.store]}　${s.startH}:00〜${s.endH}:00</div>
+     <div>${DAYS[s.day]} ${md(dDate(s.wk,s.day))}　${STORES[s.store]}　${tr(s)}</div>
      ${err?`<div class="alert r" style="margin:6px 0">⚠ 同じ日の他店シフトと重なっています。確定できません。</div>`:''}
      <div class="row" style="margin-top:6px"><button class="btn sm warn" onclick="setSt('${s.id}','provisional')">仮確定</button><button class="btn sm pri" ${err?'disabled':''} onclick="setSt('${s.id}','confirmed')">確定</button><button class="btn sm dng" onclick="rejectApp('${s.id}')">却下</button></div></div></div>`});
   $('#view').innerHTML=h+`</div>`;
@@ -663,8 +741,8 @@ function vCrew(){
      <div class="row" style="gap:6px"><b style="font-size:15px">${esc(c.name)}</b><span class="chip c-blue">${esc(c.role)}</span>${ivChip(c.id)}${needInterview(c.id)?`<button class="btn sm" onclick="markInterview('${c.id}')">面談済みにする</button>`:c.interviewAt?`<span class="note">面談 ${esc(c.interviewAt)}</span>`:''}
      ${days!==null&&days<=90?`<span class="chip c-red">在留期限まで${days}日</span>`:''}${c.visa==='留学'?'<span class="chip c-amber">週28h上限</span>':''}</div>
      <div class="note" style="margin-top:4px">📞 ${esc(c.phone)}　🏪 ${STORES[c.home]}　🌏 ${esc(c.nationality)}／${esc(c.visa)}${c.visaExp?'（'+c.visaExp+'まで）':''}</div>
-     <div class="note">🏠 ${esc(c.address)||'住所未登録'}　✉ ${esc(c.email)||'メール未登録（確定通知メールは届きません）'}</div>
-     <div class="note">希望 週${c.desired}h・${c.days.map(d=>DAYS[d]).join('')}・${{am:'早番希望',pm:'遅番希望',any:'時間帯どちらでも'}[c.pref]}・勤務可能店 ${c.stores.map(i=>STORES[i].replace('店','')).join('／')}</div>
+     <div class="note">🏠 ${esc(c.address)||'住所未登録'}　✉ ${esc(c.email)||'メール未登録'} ${c.lineUserId?'<span class="chip c-green">LINE連携済み</span>':''}${c.discordId?' <span class="chip c-gray">Discord登録</span>':''}</div>
+     <div class="note">希望 週${c.desired}h・${c.days.map(d=>DAYS[d]).join('')}・${{am:'朝〜昼希望',pm:'昼〜夜希望',night:'深夜希望',any:'時間帯どちらでも'}[c.pref]}・勤務可能店 ${c.stores.map(i=>STORES[i].replace('店','')).join('／')}</div>
      <div class="note">🔑 ログインコード <b>${esc(c.code)}</b>　PIN <b>${esc(c.pin)}</b></div>
     </div><button class="btn sm" onclick="openCrew('${c.id}')">編集</button></div>`});
   $('#view').innerHTML=h;
@@ -673,12 +751,12 @@ function newCode(){let c;do{c=String(Math.floor(1000+Math.random()*9000))}while(
 function openCrew(id){
   const c=id?crew(id):{name:'',phone:'',email:'',address:'',nationality:'日本',visa:'日本国籍',visaExp:'',home:0,role:'クルー',desired:24,days:[0,1,2,3,4],pref:'any',stores:[0],code:newCode(),pin:String(Math.floor(1000+Math.random()*9000))};
   const f=(k,l,t='text',full)=>`<div class="field"${full?' style="grid-column:1/-1"':''}><label>${l}</label><input id="cf_${k}" type="${t}" class="inp" value="${esc(c[k])}"></div>`;
-  openM(id?'クルー情報の編集':'クルー登録',`<div class="grid2">${f('name','名前')}${f('phone','電話番号','tel')}${f('email','メール（確定通知用）','email',1)}${f('address','住所','text',1)}
+  openM(id?'クルー情報の編集':'クルー登録',`<div class="grid2">${f('name','名前')}${f('phone','電話番号','tel')}${f('email','メール（通知用）','email',1)}${f('discordId','DiscordのユーザーID（任意・数字）')}${f('address','住所','text',1)}
    ${f('nationality','国籍')}<div class="field"><label>在留資格</label><select id="cf_visa" class="inp">${VISAS.map(v=>`<option ${v===c.visa?'selected':''}>${v}</option>`).join('')}</select></div>
    ${f('visaExp','在留期限','date')}<div class="field"><label>所属店舗</label><select id="cf_home" class="inp">${STORES.map((s,i)=>`<option value="${i}" ${i==c.home?'selected':''}>${s}</option>`).join('')}</select></div>
    <div class="field"><label>役職</label><select id="cf_role" class="inp">${['クルー','サブリーダー','リーダー'].map(r=>`<option ${r===c.role?'selected':''}>${r}</option>`).join('')}</select></div>
    <div class="field"><label>希望勤務時間（週）</label><input id="cf_desired" type="number" class="inp" value="${c.desired}"></div>
-   <div class="field"><label>希望の時間帯</label><select id="cf_pref" class="inp">${[['any','どちらでも'],['am','早番'],['pm','遅番']].map(([k,v])=>`<option value="${k}" ${k===c.pref?'selected':''}>${v}</option>`).join('')}</select></div>
+   <div class="field"><label>希望の時間帯</label><select id="cf_pref" class="inp">${[['any','どちらでも'],['am','朝〜昼（6〜13時）'],['pm','昼〜夜（13〜22時）'],['night','深夜（22〜翌6時）']].map(([k,v])=>`<option value="${k}" ${k===c.pref?'selected':''}>${v}</option>`).join('')}</select></div>
    ${f('code','ログインコード')}${f('pin','PIN')}</div>
    <div class="field" style="margin-top:10px"><label>勤務できる曜日</label><div class="checks">${DAYS.map((d,i)=>`<label><input type="checkbox" class="cfD" value="${i}" ${c.days.includes(i)?'checked':''}>${d}</label>`).join('')}</div></div>
    <div class="field" style="margin-top:10px"><label>勤務できる店舗</label><div class="checks">${STORES.map((s,i)=>`<label><input type="checkbox" class="cfS" value="${i}" ${c.stores.includes(i)?'checked':''}>${s}</label>`).join('')}</div></div>
@@ -689,10 +767,52 @@ async function saveCrew(id){
   const g=k=>$('#cf_'+k).value.trim();if(!g('name'))return toast('名前を入れてください');
   if(!/^\d{4,8}$/.test(g('code'))||S.crew.some(x=>x.code===g('code')&&x.id!==id))return toast('ログインコードは他の人と重ならない4〜8桁の数字にしてください');
   if(!/^\d{4,8}$/.test(g('pin')))return toast('PINは4〜8桁の数字にしてください');
-  const d={id:id||uid(),name:g('name'),phone:g('phone'),email:g('email'),address:g('address'),nationality:g('nationality'),visa:g('visa'),visaExp:g('visaExp'),home:+g('home'),role:g('role'),desired:+g('desired')||0,pref:g('pref'),code:g('code'),pin:g('pin'),
+  const d={id:id||uid(),name:g('name'),phone:g('phone'),email:g('email'),discordId:g('discordId'),address:g('address'),nationality:g('nationality'),visa:g('visa'),visaExp:g('visaExp'),home:+g('home'),role:g('role'),desired:+g('desired')||0,pref:g('pref'),code:g('code'),pin:g('pin'),
     days:[...document.querySelectorAll('.cfD:checked')].map(x=>+x.value),stores:[...document.querySelectorAll('.cfS:checked')].map(x=>+x.value),color:id?crew(id).color:COLORS[S.crew.length%COLORS.length]};
   if(!d.stores.includes(d.home))d.stores.push(d.home);
   closeM();if(await putRow('Crew',d))toast('保存しました');
+}
+
+
+/* ===== 通知設定 ===== */
+function vNotify(){
+  const r=S.raw||{},ck=k=>r[k]==='1'?'checked':'',hours=Array.from({length:24},(_,i)=>i);
+  let h=MODE==='demo'?`<div class="alert a">デモモードでは設定の確認だけできます。実際の送信は本番モード（スプレッドシート連携）で行われます。</div>`:'';
+  h+=`<div class="card"><h2>予告のタイミング</h2>
+   <div class="row" style="padding:6px 0"><label class="row" style="gap:6px"><input type="checkbox" ${ck('rem_prev_on')} onchange="setSetting('rem_prev_on',this.checked?'1':'')">前日の</label>
+    <select class="inp" style="width:auto" onchange="setSetting('rem_prev_hour',this.value)">${hours.map(x=>`<option value="${x}" ${String(x)===(r.rem_prev_hour??'20')?'selected':''}>${x}時</option>`).join('')}</select><span>に予告する</span></div>
+   <div class="row" style="padding:6px 0"><label class="row" style="gap:6px"><input type="checkbox" ${ck('rem_soon_on')} onchange="setSetting('rem_soon_on',this.checked?'1':'')">勤務開始の</label>
+    <select class="inp" style="width:auto" onchange="setSetting('rem_soon_hours',this.value)">${[1,2,3,4,5,6,8,10,12].map(x=>`<option value="${x}" ${String(x)===(r.rem_soon_hours??'3')?'selected':''}>${x}時間前</option>`).join('')}</select><span>にも送る</span></div>
+   <p class="note">送るのは「確定」のシフトだけです。15分ごとに確認して送るので、最大15分ほど遅れることがあります。時間を変えたシフトは、変更後の時間で送り直します。</p></div>
+  <div class="card"><h2>送る方法</h2>
+   <label class="row" style="gap:6px;padding:4px 0"><input type="checkbox" ${ck('ch_mail')} onchange="setSetting('ch_mail',this.checked?'1':'')"><b>メール</b><span class="note">クルー管理でメールを登録した人に送る</span></label>
+   <label class="row" style="gap:6px;padding:4px 0"><input type="checkbox" ${ck('ch_line')} onchange="setSetting('ch_line',this.checked?'1':'')"><b>LINE</b><span class="note">LINE公式アカウントと連携した人に送る</span></label>
+   <label class="row" style="gap:6px;padding:4px 0"><input type="checkbox" ${ck('ch_discord')} onchange="setSetting('ch_discord',this.checked?'1':'')"><b>Discord</b><span class="note">シフトの店舗のチャンネルに投稿する</span></label>
+   <p class="note">シフトが確定したときのお知らせも、同じ方法で送ります。</p></div>
+  <div class="card"><h2>LINEの設定 ${S.lineTokenSet?'<span class="chip c-green">設定済み</span>':'<span class="chip c-gray">未設定</span>'}</h2>
+   <ol style="padding-left:20px;font-size:13px;line-height:1.8">
+    <li>LINE Developersで「Messaging API」のチャネル（LINE公式アカウント）を作る</li>
+    <li>「チャネルアクセストークン（長期）」を発行して、下に貼って保存する</li>
+    <li>「Webhook URL」に接続先URLを入れて、「Webhookの利用」をオンにする</li>
+    <li>LINE公式アカウントの「応答メッセージ」をオフにする</li>
+    <li>友だち追加のURL（https://lin.ee/…）を下に入れる。クルーの連携画面に表示されます</li></ol>
+   <div class="field" style="margin-top:8px"><label>接続先URL（Webhook URLに入れる）</label><input class="inp" readonly value="${esc(URL_||'本番モードで表示されます')}" onclick="this.select()"></div>
+   <div class="row" style="margin-top:8px;flex-wrap:nowrap"><input id="lineTok" type="password" class="inp" placeholder="チャネルアクセストークン（長期）" autocomplete="off"><button class="btn pri" onclick="saveLineToken()">保存</button></div>
+   <div class="field" style="margin-top:8px"><label>友だち追加のURL</label><input class="inp" value="${esc(r.line_add_url||'')}" placeholder="https://lin.ee/…" onchange="setSetting('line_add_url',this.value.trim())"></div></div>
+  <div class="card"><h2>Discordの設定</h2>
+   <p class="note" style="margin-bottom:8px">各店舗のチャンネルで「チャンネルの編集 → 連携サービス → ウェブフック」から作ったURLを貼ってください。クルー管理にDiscordのユーザーIDを入れた人はメンションされます。</p>
+   ${STORES.map((st,i)=>`<div class="field" style="margin-bottom:6px"><label>${st}</label><input class="inp" type="password" value="${esc(r['discord_'+i]||'')}" placeholder="https://discord.com/api/webhooks/…" onchange="setSetting('discord_${i}',this.value.trim())"></div>`).join('')}</div>
+  <div class="card"><h2>テスト</h2><div class="row"><select id="tnC" class="inp" style="width:auto">${S.crew.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select><button class="btn" onclick="testNotify()">テスト送信</button><button class="btn" onclick="remindNow()">今すぐ予告を確認して送る</button></div>
+   <p class="note" style="margin-top:6px">テスト送信は、選んだクルーに登録されている方法すべてに送ります。</p></div>`;
+  $('#view').innerHTML=h;
+}
+async function saveLineToken(){const v=$('#lineTok').value.trim();if(MODE==='demo')return toast('本番モードで設定してください');const j=await api('setLineToken',{value:v});if(j){S.lineTokenSet=!!v;render();toast(v?'LINEのトークンを保存しました':'LINEのトークンを削除しました')}}
+async function testNotify(){if(MODE==='demo')return toast('テスト送信は本番モードでできます');const j=await api('testNotify',{crewId:$('#tnC').value});if(j)toast(j.sent.length?`${j.sent.join('・')}に送りました`:'送れる宛先がありません。メール・LINE・Discordの設定を確認してください')}
+async function remindNow(){if(MODE==='demo')return toast('本番モードでできます');const j=await api('remindNow');if(j)toast(`${j.result.crews}人に${j.result.shifts}件の予告を送りました`)}
+async function lineLink(){
+  if(MODE==='demo')return toast('LINE連携は本番モードでできます');
+  const j=await api('lineCode');if(!j)return;const u=(S.raw||{}).line_add_url;
+  $('#lineBox').innerHTML=`<div class="alert b" style="margin-top:10px"><div>1. ${u?`<a href="${esc(u)}" target="_blank" rel="noopener">ここからLINE公式アカウントを友だち追加</a>`:'店長から聞いたLINE公式アカウントを友だち追加'}</div><div style="margin-top:4px">2. トークで次の数字を送る（30分以内）</div><div style="font-size:26px;font-weight:700;letter-spacing:.15em;margin-top:4px">${j.code}</div><div class="note">「連携ができました」と返事が来たら完了です。</div></div>`;
 }
 
 /* ===== クルー画面 ===== */
@@ -707,20 +827,21 @@ function vMe(){
   if(nt.length)h+=`<div class="alert b"><b>🔔 新しく確定したシフト</b>${nt.slice(-8).map(t=>`<div>${esc(t.text)}</div>`).join('')}<button class="btn sm" style="margin-top:6px" onclick="ack()">確認しました</button></div>`;
   h+=`<div class="stats"><div class="stat"><div class="k">この週の勤務</div><div class="v">${H}<small> h</small></div><div class="d">希望 ${des}h（達成 ${pct(des?Math.min(H/des,1):1)}）</div></div>
    <div class="stat"><div class="k">この週の給与見込み</div><div class="v">¥${yen.toLocaleString()}</div><div class="d">月の見込み ¥${Math.round(yen*4.3).toLocaleString()}（22時以降は25%増）</div></div></div>
+   <div class="card"><h2>通知の受け取り</h2><div class="row" style="gap:8px"><span class="chip ${c.email?'c-green':'c-gray'}">メール：${c.email?'登録済み':'未登録'}</span><span class="chip ${c.lineUserId?'c-green':'c-gray'}">LINE：${c.lineUserId?'連携済み':'未連携'}</span>${ROLE==='crew'?`<button class="btn sm" onclick="lineLink()">${c.lineUserId?'LINEを連携し直す':'LINEと連携する'}</button>`:''}</div><div id="lineBox"></div><p class="note" style="margin-top:6px">確定したシフトは、前日と勤務の少し前にお知らせが届きます。メールを変えたいときは店長に伝えてください。</p></div>
    <div class="tabs">${[['mine','自分のシフト'],['apply','シフト申請'],['store','店舗のシフト']].map(([k,v])=>`<button class="${meTab===k?'on':''}" onclick="meTab='${k}';render()">${v}</button>`).join('')}</div>`;
   if(meTab==='mine'){
     if(!mine.length)h+=`<p class="note">この週のシフトはまだありません。「シフト申請」から希望を出せます。</p>`;
-    mine.forEach(s=>h+=`<div class="myshift"><div style="width:52px;text-align:center"><b>${DAYS[s.day]}</b><div class="note">${md(dDate(s.wk,s.day))}</div></div><div style="flex:1"><b style="font-size:15px">${s.startH}:00〜${s.endH}:00</b><div class="note">${STORES[s.store]}・${hrs(s)}時間</div></div><span class="chip ${s.status==='confirmed'?'c-blue':s.status==='provisional'?'c-amber':'c-purple'}">${{confirmed:'確定',provisional:'仮確定',applied:'申請中'}[s.status]}</span></div>`);
+    mine.forEach(s=>h+=`<div class="myshift"><div style="width:52px;text-align:center"><b>${DAYS[s.day]}</b><div class="note">${md(dDate(s.wk,s.day))}</div></div><div style="flex:1"><b style="font-size:15px">${tr(s)}</b><div class="note">${STORES[s.store]}・${hrs(s)}時間</div></div><span class="chip ${s.status==='confirmed'?'c-blue':s.status==='provisional'?'c-amber':'c-purple'}">${{confirmed:'確定',provisional:'仮確定',applied:'申請中'}[s.status]}</span></div>`);
   }else if(meTab==='apply'){
-    const o=a=>`<option value="">—</option>`+a.map(x=>`<option>${x}</option>`).join('');
-    const st=Array.from({length:18},(_,i)=>i+6),en=Array.from({length:18},(_,i)=>i+7);
+    const o=a=>`<option value="">—</option>`+a.map(x=>`<option value="${x}">${hl(x)}</option>`).join('');
+    const st=Array.from({length:24},(_,i)=>i+6),en=Array.from({length:24},(_,i)=>i+7);
     h+=`<div class="card"><p class="note" style="margin-bottom:8px">${wkLabel(wk)} の希望を入力してください（入れた日だけ申請されます）</p>`;
     DAYS.forEach((d,i)=>h+=`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:nowrap"><b style="width:56px;flex:none">${d} ${md(dDate(wk,i))}</b><select id="ap_s${i}" class="inp" style="width:68px">${o(st)}</select>〜<select id="ap_e${i}" class="inp" style="width:68px">${o(en)}</select><select id="ap_t${i}" class="inp">${(c.stores||[c.home]).map(si=>`<option value="${si}" ${si===c.home?'selected':''}>${STORES[si]}</option>`).join('')}</select></div>`);
     h+=`<div class="acts"><button class="btn pri" onclick="submitApply()">申請する</button></div></div>`;
   }else{
     h+=`<div class="card"><h2>${STORES[c.home]} のこの週のシフト</h2>`;
     for(let d=0;d<7;d++){const list=S.shifts.filter(s=>s.wk===wk&&s.store===c.home&&s.day===d&&s.status!=='applied').sort((a,b)=>a.startH-b.startH);
-      h+=`<div class="prow"><div><b>${DAYS[d]}</b> ${md(dDate(wk,d))}</div><div>${list.length?list.map(s=>`<div><span class="dot" style="background:${crew(s.crewId)?.color||'#ccc'}"></span>${esc(crew(s.crewId)?.name||'')}　${s.startH}:00〜${s.endH}:00${s.status==='provisional'?' <span class="chip c-amber">仮</span>':''}</div>`).join(''):'<span class="note">シフトなし</span>'}</div></div>`}
+      h+=`<div class="prow"><div><b>${DAYS[d]}</b> ${md(dDate(wk,d))}</div><div>${list.length?list.map(s=>`<div><span class="dot" style="background:${crew(s.crewId)?.color||'#ccc'}"></span>${esc(crew(s.crewId)?.name||'')}　${tr(s)}${s.status==='provisional'?' <span class="chip c-amber">仮</span>':''}</div>`).join(''):'<span class="note">シフトなし</span>'}</div></div>`}
     h+=`</div>`;
   }
   $('#view').innerHTML=h;
