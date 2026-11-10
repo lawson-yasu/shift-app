@@ -241,6 +241,11 @@ function filterCrew(id,q){const el=$('#'+id),cur=el.value;el.innerHTML=crewOpts(
 const reqAt=x=>{const h=x%24,g=h>=6&&h<9?'early':h>=9&&h<17?'day':h>=17&&h<22?'evening':'night';return (S.req||{})[g]??1};
 const hourOpts=(a,b,v)=>Array.from({length:b-a+1},(_,i)=>a+i).map(x=>`<option value="${x}" ${x==v?'selected':''}>${x>=24?'翌'+(x-24):x}時</option>`).join('');
 const minOpts=h=>{const m=Math.round((h-Math.floor(h+1e-9))*60);return [0,15,30,45].map(x=>`<option value="${x}" ${x===m?'selected':''}>${String(x).padStart(2,'0')}分</option>`).join('')};
+const RQ=()=>S.reqs||[];
+const swapOf=id=>RQ().find(q=>q.type==='swap'&&q.shiftId===id&&(q.status==='open'||q.status==='accepted'));
+const qLabel=q=>`${md(dDate(q.wk,q.day))}（${DAYS[q.day]}） ${tr(q)}`;
+const isFuture=q=>dDate(q.wk,q.day).getTime()+q.startH*3600e3>Date.now();
+const liveOnly=()=>{if(MODE==='demo'){toast('本番モードで使えます');return true}return false};
 const getT=id=>+$('#'+id).value+(+$('#'+id+'m').value)/60;
 const TPL=[[6,9],[9,13],[13,17],[9,17],[17,22],[17,20],[20,22],[22,30]];
 const REQK=[['early','早朝 6〜9時'],['day','日中 9〜17時'],['evening','夕方 17〜22時'],['night','深夜 22〜翌6時']];
@@ -252,7 +257,7 @@ const BASE=new Date(TODAY);BASE.setDate(TODAY.getDate()-((TODAY.getDay()+6)%7));
 const LS={get:k=>{try{return localStorage.getItem(k)}catch(e){return null}},set:(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}},del:k=>{try{localStorage.removeItem(k)}catch(e){}}};
 let MODE=API_URL?'live':(LS.get('shift_mode')||''),URL_=API_URL||LS.get('shift_api')||'';
 let AUTH=null;try{AUTH=JSON.parse(LS.get('shift_auth')||'null')}catch(e){}
-let ROLE='admin',S=null,wk=0,view='shift',PROP=null,editId=null,meTab='mine',meId=null,storeF='all',propStores=[0,1,2,3,4],gateTab='admin';
+let ROLE='admin',S=null,wk=0,view='shift',PROP=null,editId=null,meTab='mine',meId=null,storeF='all',propStores=[0,1,2,3,4],gateTab=location.hash==='#admin'?'admin':'crew';
 
 const $=q=>document.querySelector(q);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -321,16 +326,17 @@ function settingsFrom(list){const st={};(list||[]).forEach(r=>st[r.key]=r.value)
   return {wage:{兵庫:+st.wage_hyogo||1172,大阪:+st.wage_osaka||1231},req:{early:st.req_early==null?1:+st.req_early,day:st.req_day==null?1:+st.req_day,evening:st.req_evening==null?1:+st.req_evening,night:st.req_night==null?1:+st.req_night},pat:{day:st.pat_day||'split',eve:st.pat_eve||'full'},raw:st}}
 const shIn=s=>({id:s.id,crewId:s.crewId,store:num(s.store),day:num(s.day),startH:num(s.startH),endH:num(s.endH),status:s.status,wk:wkOf(s.ws),auto:!!s.auto,breakMin:s.breakMin===''||s.breakMin==null?null:num(s.breakMin)});
 const shOut=s=>({id:s.id,crewId:s.crewId,store:s.store,ws:wsOf(s.wk),day:s.day,startH:s.startH,endH:s.endH,status:s.status,auto:s.auto?'1':'',breakMin:s.breakMin==null?'':s.breakMin});
+const rqIn=q=>({...q,day:num(q.day),startH:num(q.startH),endH:num(q.endH),store:q.store===''||q.store==null?null:num(q.store),stores:arr(q.stores),wk:q.ws?wkOf(q.ws):null,payload:(()=>{try{return typeof q.payload==='object'?q.payload:JSON.parse(q.payload||'{}')}catch(e){return {}}})()});
 const crIn=c=>({...c,home:num(c.home),desired:num(c.desired),days:arr(c.days),stores:arr(c.stores)});
 async function reload(){
   if(MODE==='demo'){render();return}
   if(AUTH.role==='admin'){
     const j=await api('getAll');if(!j)return;const d=j.data,st=settingsFrom(d.settings);
     const memos={};(d.memos||[]).forEach(m=>memos[m.id]=m.text);
-    S={crew:d.crew.map(crIn),shifts:d.shifts.map(shIn),att:d.att.map(a=>({...a,wk:wkOf(a.ws),day:num(a.day),min:num(a.min)})),memos,notices:[],...st,lineTokenSet:!!d.lineTokenSet};ROLE='admin';
+    S={crew:d.crew.map(crIn),shifts:d.shifts.map(shIn),att:d.att.map(a=>({...a,wk:wkOf(a.ws),day:num(a.day),min:num(a.min)})),memos,notices:[],reqs:(d.requests||[]).map(rqIn),...st,lineTokenSet:!!d.lineTokenSet};ROLE='admin';
   }else{
     const j=await api('getMe');if(!j)return;const d=j.data;
-    S={crew:d.crew.map(c=>c.days!==undefined?crIn(c):c),shifts:d.shifts.map(shIn),att:[],memos:{},notices:d.notices,...settingsFrom(d.settings)};ROLE='crew';meId=AUTH.crewId;view='me';
+    S={crew:d.crew.map(c=>c.days!==undefined?crIn(c):c),shifts:d.shifts.map(shIn),att:[],memos:{},notices:d.notices,reqs:(d.requests||[]).map(rqIn),...settingsFrom(d.settings)};ROLE='crew';meId=AUTH.crewId;view='me';
   }
   render();
 }
@@ -457,7 +463,7 @@ function render(){
   $('#ttl').textContent=TITLES[view][0];$('#sub').textContent=TITLES[view][1];
   $('#wkLbl').textContent=view==='propose'?`対象：${wkLabel(wk+1)}`:wkLabel(wk);
   $('#wknav').style.display=['crew','att','notify'].includes(view)?'none':'flex';
-  $('#appCnt').textContent=S.shifts.filter(s=>s.status==='applied').length;
+  $('#appCnt').textContent=S.shifts.filter(s=>s.status==='applied').length+RQ().filter(q=>(q.type==='swap'&&q.status==='accepted')||(q.type==='profile'&&q.status==='pending')).length;
   $('#topActs').innerHTML=view==='shift'?`<button class="btn" onclick="openShift(null)">＋シフト追加</button><button class="btn pri" onclick="confirmAll()">この週を一括確定</button>`
     :isCrew?`<button class="btn sm" onclick="reload()">更新</button><button class="btn sm" onclick="logout()">ログアウト</button>`:'';
   renderFoot();
@@ -469,7 +475,7 @@ function vShift(){
   const w=wk,stores=storeF==='all'?STORES.map((_,i)=>i):[+storeF],T=DW*7;
   let h=`<div class="row" style="margin-bottom:10px"><select class="inp" style="width:auto" onchange="storeF=this.value;render()"><option value="all">全5店舗</option>${STORES.map((s,i)=>`<option value="${i}" ${storeF==i?'selected':''}>${s}</option>`).join('')}</select>
   <div class="legend" style="margin:0"><span><i style="background:var(--bc-bg)"></i>確定</span><span><i style="background:var(--bp-bg)"></i>仮確定</span><span><i style="background:var(--ba-bg)"></i>申請</span><span><i style="background:var(--be-bg)"></i>他店とダブり（確定不可）</span><span>✦ 自動提案</span></div></div>
-  <div class="daychips" style="margin-bottom:8px"><span class="note" style="align-self:center">日へ移動</span>${DAYS.map((d,i)=>`<button class="btn sm" onclick="$('.tlwrap').scrollTo({left:${i}*DW,behavior:'smooth'})">${d} ${md(dDate(w,i))}</button>`).join('')}</div>`;
+  <div class="daychips" style="margin-bottom:8px"><span class="note" style="align-self:center">日へ移動</span>${DAYS.map((d,i)=>`<button class="btn sm" onclick="$('.tlwrap').scrollTo({left:${i}*DW,behavior:'smooth'})">${d} ${md(dDate(w,i))}${(n=>n?`・予備${n}`:'')(RQ().filter(q=>q.type==='standby'&&q.status==='open'&&q.wk===w&&q.day===i&&(storeF==='all'||q.stores.includes(+storeF))).length)}</button>`).join('')}</div>`;
   h+=`<div class="tlwrap"><div class="tl" style="width:calc(var(--lab) + ${T}px)"><div class="tlr head"><div class="lab">店舗／クルー</div><div class="trk" style="width:${T}px">`;
   for(let d=0;d<7;d++)h+=`<div class="tday ${d==5?'sat':d==6?'sun':''}" style="left:${d*DW}px;width:${DW}px">${DAYS[d]} ${md(dDate(w,d))}</div>`;
   h+=`</div></div><div class="tlr hrs"><div class="lab"></div><div class="trk" style="width:${T}px">`;
@@ -493,7 +499,7 @@ function vShift(){
     ids.forEach(cid=>{const c=crew(cid);if(!c)return;
       h+=`<div class="tlr"><div class="lab" title="${needInterview(c.id)?'要面談':''}"><span class="dot" style="background:${c.color}"></span>${needInterview(c.id)?'⚠ ':''}${esc(c.name)}</div><div class="trk lane" data-crew="${c.id}" data-store="${si}" style="width:${T}px">`;
       S.shifts.filter(s=>s.wk===w&&s.store===si&&s.crewId===cid).forEach(s=>{const err=conflict(s),st=Math.max(s.startH,HS),en=Math.min(s.endH,HE);if(en<=st)return;
-        h+=`<div class="bar ${err?'b-err':'b-'+s.status}" data-id="${s.id}" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openShift('${s.id}')" style="left:${s.day*DW+(st-HS)*CW+1}px;width:${(en-st)*CW-2}px"><span class="lb">${err?'⚠ダブり ':''}${hl(s.startH)}-${hl(s.endH)}${brk(s)?` 休${brk(s)}`:''}${s.auto?' ✦':''}</span></div>`});
+        h+=`<div class="bar ${err?'b-err':'b-'+s.status}" data-id="${s.id}" role="button" tabindex="0" onkeydown="if(event.key==='Enter')openShift('${s.id}')" style="left:${s.day*DW+(st-HS)*CW+1}px;width:${(en-st)*CW-2}px"><span class="lb">${err?'⚠ダブり ':''}${swapOf(s.id)?'⇄ ':''}${hl(s.startH)}-${hl(s.endH)}${brk(s)?` 休${brk(s)}`:''}${s.auto?' ✦':''}</span></div>`});
       h+=`</div></div>`});
   });
   h+=`</div></div><p class="note" style="margin-top:8px">空いている所を横にドラッグするとシフトを追加（仮確定）、バーの端をドラッグで時間を伸び縮み、真ん中をドラッグで移動できます。バーをタップすると編集・確定・勤怠の記録ができます。配置人数の赤字は表示中の店舗数より少ない時間帯です。</p>`;
@@ -746,16 +752,42 @@ async function applyProposal(){
 }
 
 /* ===== 申請一覧 ===== */
+const PL={phone:'電話番号',email:'メール',address:'住所',kana:'フリガナ',discordId:'DiscordのユーザーID',nationality:'国籍',visa:'在留資格',visaExp:'在留期限',desired:'希望勤務時間（週）',pref:'希望の時間帯',days:'勤務できる曜日',stores:'勤務できる店舗'};
+const PREFN={any:'どちらでも',am:'朝〜昼',pm:'昼〜夜',night:'深夜'};
+function fmtP(k,v){if(v==null||v==='')return '—';if(k==='days')return (Array.isArray(v)?v:[]).map(d=>DAYS[d]).join('')||'—';if(k==='stores')return (Array.isArray(v)?v:[]).map(i=>STORES[i]?.replace('店','')).join('／')||'—';if(k==='pref')return PREFN[v]||v;if(k==='desired')return v+'h';return esc(v)}
+const pv=v=>Array.isArray(v)?JSON.stringify([...v].map(Number).sort()):String(v??'');
 function vApps(){
+  const R=RQ(),nm=id=>esc(crew(id)?.name||'（不明）');
+  const swAcc=R.filter(q=>q.type==='swap'&&q.status==='accepted'),swOpen=R.filter(q=>q.type==='swap'&&q.status==='open'&&isFuture(q));
+  const prof=R.filter(q=>q.type==='profile'&&q.status==='pending');
+  const stby=R.filter(q=>q.type==='standby'&&q.status==='open'&&q.wk!=null&&isFuture(q)).sort((a,b)=>a.wk-b.wk||a.day-b.day||a.startH-b.startH);
+  let h=`<div class="card"><h2>交代の承認待ち（${swAcc.length}）</h2>${swAcc.length?'':'<p class="note">ありません。</p>'}`;
+  swAcc.forEach(q=>{h+=`<div class="prow"><div><b>${STORES[q.store]}</b><div class="note">${qLabel(q)}</div></div><div><div>${nm(q.crewId)} → <b>${nm(q.takerId)}</b></div>${q.note?`<div class="note">理由：${esc(q.note)}</div>`:''}
+    <div class="row" style="margin-top:6px"><button class="btn sm pri" onclick="decide('${q.id}',true)">承認してシフトを交代</button><button class="btn sm dng" onclick="decide('${q.id}',false)">却下</button></div></div></div>`});
+  h+=`</div><div class="card"><h2>プロフィール変更の申請（${prof.length}）</h2>${prof.length?'':'<p class="note">ありません。</p>'}`;
+  prof.forEach(q=>{const c=crew(q.crewId)||{};const rows=Object.entries(q.payload).filter(([k,v])=>pv(v)!==pv(c[k]));const visa=rows.some(([k])=>['nationality','visa','visaExp'].includes(k));
+    h+=`<div class="prow"><div><b>${nm(q.crewId)}</b><div class="note">${md(new Date(q.createdAt))} 申請</div></div><div>${rows.length?`<div class="tw"><table class="t"><tr><th>項目</th><th>今</th><th>変更後</th></tr>${rows.map(([k,v])=>`<tr><td>${PL[k]||k}</td><td class="note">${fmtP(k,c[k])}</td><td><b>${fmtP(k,v)}</b></td></tr>`).join('')}</table></div>`:'<p class="note">変更はありません。</p>'}
+    ${q.note?`<div class="note">メモ：${esc(q.note)}</div>`:''}${visa?`<div class="alert a">在留情報の変更があります。在留カードを見て確認してから承認してください。</div>`:''}
+    <div class="row" style="margin-top:6px"><button class="btn sm pri" onclick="decide('${q.id}',true)">承認して登録</button><button class="btn sm dng" onclick="decide('${q.id}',false)">却下</button></div></div></div>`});
   const list=S.shifts.filter(s=>s.status==='applied').sort((a,b)=>a.wk-b.wk||a.day-b.day);
-  let h=`<div class="card"><h2>申請中のシフト（全週）</h2>${list.length?'':'<p class="note">申請中のシフトはありません。</p>'}`;
+  h+=`</div><div class="card"><h2>シフトの申請（${list.length}）</h2>${list.length?'':'<p class="note">申請中のシフトはありません。</p>'}`;
   list.forEach(s=>{const c=crew(s.crewId);if(!c)return;const err=conflict(s);
     h+=`<div class="prow"><div><span class="dot" style="background:${c.color}"></span><b>${esc(c.name)}</b><div class="note">${wkLabel(s.wk)}</div></div><div>
      <div>${DAYS[s.day]} ${md(dDate(s.wk,s.day))}　${STORES[s.store]}　${tr(s)}</div>
      ${err?`<div class="alert r" style="margin:6px 0">⚠ 同じ日の他店シフトと重なっています。確定できません。</div>`:''}
      <div class="row" style="margin-top:6px"><button class="btn sm warn" onclick="setSt('${s.id}','provisional')">仮確定</button><button class="btn sm pri" ${err?'disabled':''} onclick="setSt('${s.id}','confirmed')">確定</button><button class="btn sm dng" onclick="rejectApp('${s.id}')">却下</button></div></div></div>`});
+  h+=`</div><div class="card"><h2>予備申請（空きが出たら入りたい）（${stby.length}）</h2>${stby.length?'':'<p class="note">ありません。</p>'}`;
+  stby.forEach(q=>{h+=`<div class="prow"><div><b>${nm(q.crewId)}</b><div class="note">${qLabel(q)}</div></div><div><div class="note">入れる店舗：${q.stores.map(i=>STORES[i]).join('・')}${q.note?`／${esc(q.note)}`:''}</div>
+    <div class="row" style="margin-top:6px"><select id="sb_${q.id}" class="inp" style="width:auto">${q.stores.map(i=>`<option value="${i}">${STORES[i]}</option>`).join('')}</select><button class="btn sm pri" onclick="assignStandby('${q.id}')">シフトに入れる（仮確定）</button><button class="btn sm" onclick="decide('${q.id}',false)">締め切る</button></div></div></div>`});
+  h+=`</div><div class="card"><h2>交代の募集中（引き受け待ち）（${swOpen.length}）</h2>${swOpen.length?'':'<p class="note">ありません。</p>'}`;
+  swOpen.forEach(q=>{const cand=stby.filter(x=>x.wk===q.wk&&x.day===q.day&&x.startH<=q.startH&&x.endH>=q.endH&&x.stores.includes(q.store)&&x.crewId!==q.crewId);
+    h+=`<div class="prow"><div><b>${STORES[q.store]}</b><div class="note">${qLabel(q)}</div></div><div><div>${nm(q.crewId)} さんが交代を募集中${q.note?`<span class="note">（${esc(q.note)}）</span>`:''}</div>${cand.length?`<div class="note">予備申請している人：${cand.map(x=>nm(x.crewId)).join('、')}</div>`:''}
+    <div class="row" style="margin-top:6px"><button class="btn sm dng" onclick="decide('${q.id}',false)">募集を締め切る</button></div></div></div>`});
   $('#view').innerHTML=h+`</div>`;
 }
+async function decide(id,ap){if(liveOnly())return;const j=await api('decideReq',{id,approve:ap});if(!j)return;await reload();toast(ap?'承認しました':'処理しました')}
+async function assignStandby(id){if(liveOnly())return;const q=RQ().find(x=>x.id===id);const t={id:uid(),crewId:q.crewId,store:+$('#sb_'+id).value,day:q.day,startH:q.startH,endH:q.endH,status:'provisional',wk:q.wk,auto:false,breakMin:null};
+  const bad=conflict(t);const rej=await putShifts([t]);if(!rej)return;if(!await api('decideReq',{id,approve:true}))return;await reload();toast(`${crew(q.crewId)?.name}さんを仮確定で入れました${bad?'（⚠ 他のシフトと重なっています）':''}`)}
 async function setSt(id,st){const s=S.shifts.find(x=>x.id===id);if(st==='confirmed'&&conflict(s))return toast('⚠ 重なっているため確定できません');
   const rej=await putShifts([{...s,status:st}]);if(rej)toast(rej.length?'⚠ 重なっているため確定できませんでした':st==='confirmed'?'確定しました。クルーに通知しました':'仮確定しました')}
 async function rejectApp(id){if(await putShifts([],[id]))toast('申請を却下しました')}
@@ -870,20 +902,24 @@ function vMe(){
   const nt=S.notices.filter(n=>n.crewId===c.id&&!n.read);
   let h=ROLE==='crew'?`<p style="margin-bottom:10px"><b style="font-size:16px">${esc(c.name)} さん</b> <span class="note">${STORES[c.home]}</span></p>`
     :`<div class="row" style="margin-bottom:12px"><span class="note">表示するクルー</span><select class="inp" style="width:auto" onchange="meId=this.value;render()">${S.crew.map(x=>`<option value="${x.id}" ${x.id===c.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>`;
-  if(nt.length)h+=`<div class="alert b"><b>🔔 新しく確定したシフト</b>${nt.slice(-8).map(t=>`<div>${esc(t.text)}</div>`).join('')}<button class="btn sm" style="margin-top:6px" onclick="ack()">確認しました</button></div>`;
+  if(ROLE==='crew'&&(!c.phone||!c.email)&&!RQ().some(q=>q.type==='profile'&&q.status==='pending'))h+=`<div class="alert a">プロフィール（電話・メールなど）が未登録です。<button class="btn sm" onclick="meTab='prof';render()">登録する</button></div>`;
+  if(nt.length)h+=`<div class="alert b"><b>🔔 お知らせ</b>${nt.slice(-8).map(t=>`<div>${esc(t.text)}</div>`).join('')}<button class="btn sm" style="margin-top:6px" onclick="ack()">確認しました</button></div>`;
   h+=`<div class="stats"><div class="stat"><div class="k">この週の勤務</div><div class="v">${f2(H)}<small> h</small></div><div class="d">希望 ${des}h（達成 ${pct(des?Math.min(H/des,1):1)}）</div></div>
    <div class="stat"><div class="k">この週の給与見込み</div><div class="v">¥${yen.toLocaleString()}</div><div class="d">月の見込み ¥${Math.round(yen*4.3).toLocaleString()}（22時以降は25%増）</div></div></div>
    <div class="card"><h2>通知の受け取り</h2><div class="row" style="gap:8px"><span class="chip ${c.email?'c-green':'c-gray'}">メール：${c.email?'登録済み':'未登録'}</span><span class="chip ${c.lineUserId?'c-green':'c-gray'}">LINE：${c.lineUserId?'連携済み':'未連携'}</span>${ROLE==='crew'?`<button class="btn sm" onclick="lineLink()">${c.lineUserId?'LINEを連携し直す':'LINEと連携する'}</button>`:''}</div><div id="lineBox"></div><p class="note" style="margin-top:6px">確定したシフトは、前日と勤務の少し前にお知らせが届きます。メールを変えたいときは店長に伝えてください。</p></div>
-   <div class="tabs">${[['mine','自分のシフト'],['apply','シフト申請'],['store','店舗のシフト']].map(([k,v])=>`<button class="${meTab===k?'on':''}" onclick="meTab='${k}';render()">${v}</button>`).join('')}</div>`;
+   <div class="tabs">${[['mine','自分のシフト'],['apply','シフト申請'],['swap','予備・交代'],['store','店舗のシフト'],['prof','プロフィール']].map(([k,v])=>`<button class="${meTab===k?'on':''}" onclick="meTab='${k}';render()">${v}</button>`).join('')}</div>`;
   if(meTab==='mine'){
     if(!mine.length)h+=`<p class="note">この週のシフトはまだありません。「シフト申請」から希望を出せます。</p>`;
-    mine.forEach(s=>h+=`<div class="myshift"><div style="width:52px;text-align:center"><b>${DAYS[s.day]}</b><div class="note">${md(dDate(s.wk,s.day))}</div></div><div style="flex:1"><b style="font-size:15px">${tr(s)}</b><div class="note">${STORES[s.store]}・実働${f2(workH(s))}時間${brk(s)?`・休憩${brk(s)}分`:''}</div></div><span class="chip ${s.status==='confirmed'?'c-blue':s.status==='provisional'?'c-amber':'c-purple'}">${{confirmed:'確定',provisional:'仮確定',applied:'申請中'}[s.status]}</span></div>`);
+    mine.forEach(s=>{const sw=swapOf(s.id);h+=`<div class="myshift" style="flex-wrap:wrap"><div style="width:52px;text-align:center"><b>${DAYS[s.day]}</b><div class="note">${md(dDate(s.wk,s.day))}</div></div><div style="flex:1"><b style="font-size:15px">${tr(s)}</b><div class="note">${STORES[s.store]}・実働${f2(workH(s))}時間${brk(s)?`・休憩${brk(s)}分`:''}</div></div><span class="chip ${s.status==='confirmed'?'c-blue':s.status==='provisional'?'c-amber':'c-purple'}">${{confirmed:'確定',provisional:'仮確定',applied:'申請中'}[s.status]}</span>
+      ${s.status==='confirmed'&&isFuture(s)&&ROLE==='crew'?`<div style="width:100%;display:flex;gap:6px;align-items:center;justify-content:flex-end">${sw?`<span class="chip c-amber">${sw.status==='open'?'交代を募集中':`${esc(crew(sw.takerId)?.name||'')}さんが引き受け・承認待ち`}</span><button class="btn sm" onclick="cancelReq('${sw.id}')">募集をやめる</button>`:`<button class="btn sm" onclick="swapAsk('${s.id}')">代わってほしい</button>`}</div>`:''}</div>`});
   }else if(meTab==='apply'){
     const o=a=>`<option value="">—</option>`+a.map(x=>`<option value="${x}">${fmtT(x)}</option>`).join('');
     const st=Array.from({length:96},(_,i)=>6+i/4),en=Array.from({length:96},(_,i)=>6.25+i/4);
     h+=`<div class="card"><p class="note" style="margin-bottom:8px">${wkLabel(wk)} の希望を入力してください（入れた日だけ申請されます）</p>`;
     DAYS.forEach((d,i)=>h+=`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--border);flex-wrap:nowrap"><b style="width:56px;flex:none">${d} ${md(dDate(wk,i))}</b><select id="ap_s${i}" class="inp" style="width:86px">${o(st)}</select>〜<select id="ap_e${i}" class="inp" style="width:86px">${o(en)}</select><select id="ap_t${i}" class="inp">${(c.stores||[c.home]).map(si=>`<option value="${si}" ${si===c.home?'selected':''}>${STORES[si]}</option>`).join('')}</select></div>`);
     h+=`<div class="acts"><button class="btn pri" onclick="submitApply()">申請する</button></div></div>`;
+  }else if(meTab==='swap'){h+=vSwap(c);
+  }else if(meTab==='prof'){h+=vProf(c);
   }else{
     h+=`<div class="card"><h2>${STORES[c.home]} のこの週のシフト</h2>`;
     for(let d=0;d<7;d++){const list=S.shifts.filter(s=>s.wk===wk&&s.store===c.home&&s.day===d&&s.status!=='applied').sort((a,b)=>a.startH-b.startH);
@@ -892,6 +928,64 @@ function vMe(){
   }
   $('#view').innerHTML=h;
 }
+const RSTAT={standby:{open:'受付中',assigned:'シフトに入りました',closed:'締め切り'},swap:{open:'募集中',accepted:'承認待ち',approved:'交代成立',rejected:'不承認'},profile:{pending:'確認待ち',approved:'登録済み',rejected:'不承認'}};
+function qOpts(){const o=[];for(let i=0;i<21;i++){const d=new Date(TODAY);d.setDate(d.getDate()+i);const w=wkOf(ymd(d)),dy=(d.getDay()+6)%7;o.push(`<option value="${w}|${dy}">${md(d)}（${DAYS[dy]}）</option>`)}return o.join('')}
+const qTimes=(a)=>a.map(x=>`<option value="${x}">${fmtT(x)}</option>`).join('');
+function vSwap(c){
+  const R=RQ(),nm=id=>esc(crew(id)?.name||'');
+  const others=R.filter(q=>q.type==='swap'&&q.status==='open'&&q.crewId!==c.id).sort((a,b)=>a.wk-b.wk||a.day-b.day||a.startH-b.startH);
+  const mine=R.filter(q=>q.crewId===c.id||q.takerId===c.id).sort((a,b)=>(b.updatedAt||'').localeCompare(a.updatedAt||''));
+  const myStb=R.filter(q=>q.type==='standby'&&q.crewId===c.id&&q.status==='open');
+  let h=`<div class="card"><h2>代わりに入れる人を探しています</h2>${others.length?'':'<p class="note">今は募集がありません。</p>'}`;
+  others.forEach(q=>{const hit=myStb.some(x=>x.wk===q.wk&&x.day===q.day&&x.startH<=q.startH&&x.endH>=q.endH);
+    h+=`<div class="prow"><div><b>${STORES[q.store]}</b><div class="note">${qLabel(q)}</div></div><div><div>${nm(q.crewId)} さんの代わり ${hit?'<span class="chip c-green">予備申請と一致</span>':''}</div>${q.note?`<div class="note">${esc(q.note)}</div>`:''}
+      ${ROLE==='crew'?`<div class="row" style="margin-top:6px"><button class="btn sm pri" onclick="acceptSwap('${q.id}')">引き受ける</button></div>`:''}</div></div>`});
+  h+=`<p class="note" style="margin-top:6px">引き受けたあと、店長が承認すると自分のシフトになります。</p></div>`;
+  const st=Array.from({length:96},(_,i)=>6+i/4),en=Array.from({length:96},(_,i)=>6.25+i/4);
+  h+=`<div class="card"><h2>予備申請（空きが出たら入りたい日時）</h2>
+   <div class="row"><select id="sbD" class="inp" style="width:auto">${qOpts()}</select><select id="sbS" class="inp" style="width:86px">${qTimes(st)}</select>〜<select id="sbE" class="inp" style="width:86px">${qTimes(en)}</select></div>
+   <div class="checks" style="margin-top:8px">${(c.stores||[c.home]).map(i=>`<label><input type="checkbox" class="sbT" value="${i}" checked>${STORES[i]}</label>`).join('')}</div>
+   <input id="sbN" class="inp" style="margin-top:8px" placeholder="メモ（任意）例：夕方なら何時からでもOK">
+   <div class="acts"><button class="btn pri" onclick="submitStandby()">予備申請する</button></div>
+   <p class="note">シフトに空きが出たときや、交代の募集が出たときに、店長がこの申請を見て声をかけます。</p></div>`;
+  h+=`<div class="card"><h2>自分の申請</h2>${mine.length?'':'<p class="note">ありません。</p>'}`;
+  mine.forEach(q=>{const t=q.type==='standby'?'予備申請':q.type==='swap'?(q.crewId===c.id?'交代の依頼':'交代の引き受け'):'プロフィール変更';
+    const lab=q.type==='swap'&&q.status==='accepted'&&q.crewId===c.id?`${nm(q.takerId)}さんが引き受け・承認待ち`:(RSTAT[q.type]||{})[q.status]||q.status;
+    const can=ROLE==='crew'&&((q.crewId===c.id&&['open','accepted','pending'].includes(q.status))||(q.takerId===c.id&&q.status==='accepted'));
+    h+=`<div class="prow"><div><b>${t}</b></div><div><div>${q.type==='profile'?'':qLabel(q)+(q.store!=null?`　${STORES[q.store]}`:'')} <span class="chip c-gray">${lab}</span></div>${can?`<div class="row" style="margin-top:6px"><button class="btn sm" onclick="cancelReq('${q.id}')">取り消す</button></div>`:''}</div></div>`});
+  return h+`</div>`;
+}
+function vProf(c){
+  const pend=RQ().some(q=>q.type==='profile'&&q.status==='pending'&&q.crewId===c.id);
+  const f=(k,l,t='text',full)=>`<div class="field"${full?' style="grid-column:1/-1"':''}><label>${l}</label><input id="pf_${k}" type="${t}" class="inp" value="${esc(c[k])}"></div>`;
+  let h=pend?`<div class="alert b">変更を申請中です（店長の確認待ち）。もう一度送ると、前の申請と入れ替わります。</div>`:'';
+  h+=`<div class="card"><h2>プロフィール</h2><p class="note" style="margin-bottom:10px">変更して「申請する」を押すと、店長が確認してから登録されます。</p><div class="grid2">
+   ${f('phone','電話番号','tel')}${f('email','メール（お知らせ用）','email')}${f('address','住所','text',1)}${f('kana','フリガナ')}${f('discordId','DiscordのユーザーID（任意）')}
+   ${f('nationality','国籍')}<div class="field"><label>在留資格</label><select id="pf_visa" class="inp">${VISAS.map(v=>`<option ${v===c.visa?'selected':''}>${v}</option>`).join('')}</select></div>
+   ${f('visaExp','在留期限','date')}<div class="field"><label>希望勤務時間（週）</label><input id="pf_desired" type="number" class="inp" value="${esc(c.desired)}"></div>
+   <div class="field"><label>希望の時間帯</label><select id="pf_pref" class="inp">${Object.entries(PREFN).map(([k,v])=>`<option value="${k}" ${k===c.pref?'selected':''}>${v}</option>`).join('')}</select></div></div>
+   <div class="field" style="margin-top:10px"><label>勤務できる曜日</label><div class="checks">${DAYS.map((d,i)=>`<label><input type="checkbox" class="pfD" value="${i}" ${(c.days||[]).includes(i)?'checked':''}>${d}</label>`).join('')}</div></div>
+   <div class="field" style="margin-top:10px"><label>勤務できる店舗</label><div class="checks">${STORES.map((s,i)=>`<label><input type="checkbox" class="pfS" value="${i}" ${(c.stores||[]).includes(i)?'checked':''}>${s}</label>`).join('')}</div></div>
+   <input id="pf_note" class="inp" style="margin-top:10px" placeholder="店長へのメモ（任意）">
+   ${ROLE==='crew'?`<div class="acts"><button class="btn pri" onclick="submitProfile()">申請する</button></div>`:'<p class="note" style="margin-top:8px">（管理者の確認用表示です）</p>'}</div>`;
+  return h;
+}
+async function swapAsk(id){
+  openM('交代を依頼する',`<p class="note" style="margin-bottom:8px">同じ店舗で勤務できる人に募集が出ます。引き受けた人がいて、店長が承認すると交代になります。<b>それまでは自分のシフトなので、必ず勤務してください。</b></p>
+   <input id="swN" class="inp" placeholder="理由（任意）例：学校の試験のため"><div class="acts"><button class="btn" onclick="closeM()">やめる</button><button class="btn pri" onclick="sendSwap('${id}')">募集する</button></div>`);
+}
+async function sendSwap(id){if(liveOnly())return;const note=$('#swN').value.trim();closeM();meTab='mine';if(!await api('reqSwap',{shiftId:id,note}))return;await reload();toast('交代の募集を出しました')}
+async function acceptSwap(id){if(liveOnly())return;if(!confirm('この時間の交代を引き受けますか？店長が承認すると、あなたのシフトになります'))return;if(!await api('acceptSwap',{id}))return;await reload();toast('引き受けました。店長の承認を待ってください')}
+async function cancelReq(id){if(liveOnly())return;if(!confirm('取り消しますか？'))return;if(!await api('cancelReq',{id}))return;await reload();toast('取り消しました')}
+async function submitStandby(){if(liveOnly())return;const [w,d]=$('#sbD').value.split('|').map(Number),a=+$('#sbS').value,b=+$('#sbE').value;
+  if(b<=a)return toast('終わりの時間を、始まりより後にしてください');const stores=[...document.querySelectorAll('.sbT:checked')].map(x=>+x.value);if(!stores.length)return toast('店舗を選んでください');
+  if(!await api('reqStandby',{rows:[{ws:wsOf(w),day:d,startH:a,endH:b,stores,note:$('#sbN').value.trim()}]}))return;meTab='swap';await reload();toast('予備申請をしました')}
+async function submitProfile(){if(liveOnly())return;const g=k=>$('#pf_'+k).value.trim();
+  const data={phone:g('phone'),email:g('email'),address:g('address'),kana:g('kana'),discordId:g('discordId'),nationality:g('nationality'),visa:g('visa'),visaExp:g('visaExp'),desired:g('desired'),pref:g('pref'),
+    days:[...document.querySelectorAll('.pfD:checked')].map(x=>+x.value),stores:[...document.querySelectorAll('.pfS:checked')].map(x=>+x.value)};
+  if(data.email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(data.email))return toast('メールアドレスの形を確認してください');
+  if(!data.stores.length)return toast('勤務できる店舗を1つ以上選んでください');
+  if(!await api('reqProfile',{data,note:$('#pf_note').value.trim()}))return;meTab='prof';await reload();toast('申請しました。店長が確認すると登録されます')}
 async function ack(){
   if(MODE==='demo'){S.notices.forEach(n=>{if(n.crewId===meId)n.read='1'});saveLocal();render();return}
   if(await api('ack'))reload();
